@@ -1,0 +1,3537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识图谱 2D 管道可视化 V5 — 物理隔离 + 强聚类排斥</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden;
+    /* v49 背景色优化: 深蓝紫渐变（不是纯黑） */
+    background: linear-gradient(135deg, #0d1b2a 0%, #1b263b 30%, #2a1b3d 70%, #1a0e2e 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #e8e8f0;
+  }
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; height: 56px;
+    background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1e 100%);
+    border-bottom: 1px solid #2a2a3e;
+    display: flex; align-items: center; padding: 0 16px; z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  /* v22 字体美化：主公要求"字体等级没有明显的区分"+ 不要字体显示太小 */
+  #header h1 { margin: 0; font-size: 24px; font-weight: 700; color: #4ec9ff; letter-spacing: 0.5px; text-shadow: 0 0 8px rgba(78,201,255,0.4); }
+  #header .version-badge {
+    background: #4ec9ff; color: #0a0a14;
+    padding: 3px 10px; border-radius: 4px;
+    font-size: 13px; margin-left: 10px; font-weight: 700;
+    vertical-align: middle;
+  }
+  #header .stats { margin-left: 24px; font-size: 14px; color: #aab; font-weight: 500; }
+  #header .stats span { color: #4ec9ff; font-weight: 700; font-size: 15px; }
+  #header .btn {
+    margin-left: 8px;
+    background: #2a2a3e; color: #fff;
+    border: 1px solid #4ec9ff; border-radius: 4px;
+    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s;
+  }
+  #header .btn:hover { background: #4ec9ff; color: #0a0a14; transform: translateY(-1px); }
+  #header .btn:last-child { margin-left: auto; }
+  #header #btnReset { margin-left: auto; }
+
+  #info {
+    position: fixed; bottom: 16px; left: 16px;
+    background: rgba(26, 26, 46, 0.92);
+    border: 1px solid #2a2a3e; border-radius: 8px;
+    padding: 10px 14px; z-index: 99;
+    font-size: 13px; color: #aaa; max-width: 360px;
+    backdrop-filter: blur(8px);
+  }
+  #info .focus-name { color: #4ec9ff; font-weight: 600; font-size: 14px; }
+  #info .focus-count { color: #4ec9ff; font-weight: 600; font-size: 14px; }
+
+  /* v35: 将重置/清除聚焦按钮区转移到左下角（位于 #info 之上） */
+  #bottomControls {
+    position: fixed; bottom: 16px; left: 16px;
+    display: flex; gap: 8px; z-index: 100;
+    pointer-events: none;  /* 让空白区不阻挡点击 */
+  }
+  #bottomControls > * { pointer-events: auto; }
+  #bottomControls .btn {
+    font-size: 13px; padding: 8px 14px;
+    background: rgba(26, 26, 46, 0.92);
+    border: 1px solid #2a2a3e; color: #4ec9ff;
+    border-radius: 6px; cursor: pointer;
+    backdrop-filter: blur(8px); transition: all 0.2s;
+  }
+  #bottomControls .btn:hover { background: #4ec9ff; color: #0a0a14; transform: translateY(-1px); }
+  /* #info 位置跟随底栏 */
+  #info {
+    bottom: 64px;  /* v35: 位于 #bottomControls 之上 */
+  }
+
+  #legend {
+    position: fixed; top: 70px; right: 20px; width: 280px;
+    /* v35: 主公要求側栏上推到顶部 + 控出左下空间 */
+    max-height: calc(100vh - 90px); height: auto; overflow-y: auto;
+    background: rgba(26, 26, 46, 0.92);
+    border: 1px solid #2a2a3e; border-radius: 8px;
+    padding: 10px 12px; z-index: 85;
+    font-size: 13px;  /* v35: 字号统一放大 11→13 */
+    backdrop-filter: blur(8px);
+  }
+  #legend h4 { margin: 8px 0 6px 0; font-size: 16px; color: #FFD700; font-weight: 700; line-height: 1.3; }
+    #legend h4:first-child { margin-top: 0; }
+  #legend .legend-item {
+    display: flex; align-items: center;
+    margin-bottom: 3px; cursor: pointer;
+    padding: 4px 6px; border-radius: 3px; font-size: 13px; line-height: 1.4;  /* v35: 11→13 */
+5  }
+  #legend .legend-item:hover { background: rgba(78, 201, 255, 0.1); }
+  #legend .legend-item.active {
+    background: rgba(78, 201, 255, 0.25);
+    color: #4ec9ff; font-weight: 600;
+  }
+  #legend .legend-color {
+    width: 14px; height: 14px; border-radius: 50%;  /* v35: 12→14 */
+    margin-right: 8px; flex-shrink: 0;
+  }
+
+  #graph {
+    position: fixed; top: 56px; left: 0; right: 0; bottom: 0;
+    /* v49 背景图: SVG 点阵图案 + 渐变叠加（不抢焦点，但有质感） */
+    background:
+      radial-gradient(ellipse at top left, rgba(78, 201, 255, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom right, rgba(197, 134, 192, 0.08) 0%, transparent 50%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><circle cx='40' cy='40' r='1' fill='rgba(255,255,255,0.08)'/><circle cx='0' cy='0' r='1' fill='rgba(255,255,255,0.05)'/><circle cx='80' cy='80' r='1' fill='rgba(255,255,255,0.05)'/></svg>"),
+      radial-gradient(ellipse at center, #1b263b 0%, #0d1b2a 100%);
+  }
+  #loader {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #4ec9ff; font-size: 14px; z-index: 1000;
+  }
+  #loader.hidden { display: none; }
+
+    /* 优化 5: 搜索框顶部化（header 内永久可见）*/
+    #searchBar {
+      position: fixed;
+      top: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      background: rgba(10,10,20,0.95);
+      border: 1px solid #4ec9ff;
+      border-radius: 8px;
+      padding: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #searchInput {
+      width: 360px;
+      padding: 6px 12px;
+      background: rgba(0,0,0,0.4);
+      color: #fff;
+      border: 1px solid #333;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    #searchInput:focus {
+      outline: none;
+      border-color: #4ec9ff;
+    }
+    #searchResults {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      max-height: 320px;
+      overflow-y: auto;
+      background: rgba(10,10,20,0.98);
+      border: 1px solid #4ec9ff;
+      border-radius: 4px;
+      margin-top: 4px;
+      display: none;
+    }
+    .search-item {
+      padding: 6px 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #222;
+      font-size: 12px;
+      color: #ccc;
+    }
+    .search-item:hover {
+      background: rgba(78,201,255,0.2);
+    }
+    .search-name { color: #fff; margin-left: 6px; }
+    .search-meta { color: #888; font-size: 10px; margin-left: 8px; }
+    .search-empty { padding: 10px; color: #888; text-align: center; }
+    
+    /* v25: zoom 级别显示 CSS 已删除 */
+
+    /* 方向 5: 节点详情卡 */
+    .detail-card {
+      position: fixed;
+      top: 56px;
+      right: -400px;
+      width: 380px;
+      height: calc(100vh - 80px);
+      /* v49: 半透明深色背景，让渐变背景若隐若现 */
+      background: rgba(20, 25, 45, 0.92);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(78, 201, 255, 0.4);
+      border-radius: 12px;
+      box-shadow: -4px 0 20px rgba(78,201,255,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+      z-index: 101;
+      transition: right 0.3s ease;
+      overflow-y: auto;
+      color: #e8e8f0;
+    }
+    .detail-card.open {
+      right: 20px;
+    }
+    /* v22 字体美化：详情卡片层级清晰化（主公要求"字体等级没有明显的区分"） */
+    .detail-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid #4ec9ff;
+      background: rgba(78,201,255,0.12);
+      position: relative;
+    }
+    .detail-header h3 {
+      margin: 0;
+      color: #4ec9ff;
+      font-size: 20px;  /* 16→20px: H3 主标题层级更突出 */
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 6px rgba(78,201,255,0.3);
+    }
+    #detailSubtitle {
+      font-size: 13px;  /* 11→13px */
+      color: #aab;
+      margin-top: 6px;
+      font-weight: 500;
+    }
+    .detail-body {
+      padding: 16px;
+    }
+    .detail-section {
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    .detail-section h4 {
+      margin: 0 0 12px 0;
+      color: #FFD700;
+      font-size: 16px;  /* 13→16px: H4 子标题，金色高亮，层级清晰 */
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .detail-neighbors {
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .detail-neighbor-item {
+      padding: 7px 12px;
+      margin: 3px 0;
+      background: rgba(255,255,255,0.06);
+      border-left: 3px solid #4ec9ff;
+      font-size: 13px;  /* 12→13px */
+      cursor: pointer;
+      border-radius: 0 4px 4px 0;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .detail-neighbor-item:hover {
+      background: rgba(78,201,255,0.2);
+      transform: translateX(2px);
+    }
+    #detailBasic div {
+      padding: 6px 0;  /* 3→6px 更舒展 */
+      font-size: 14px;  /* 12→14px 正文 */
+      line-height: 1.7;
+    }
+    #detailBasic .label {
+      color: #9ab;  /* #888→#9ab 增强对比 */
+      display: inline-block;
+      width: 78px;
+      font-weight: 600;
+    }
+    #detailBasic .value {
+      color: #fff;
+      font-weight: 500;
+    }
+    #detailRelated div, #detailSources div {
+      padding: 5px 0;
+      font-size: 13px;  /* 11→13px */
+      color: #ccc;
+      line-height: 1.6;
+    }
+    """
+      box-shadow: -4px 0 20px rgba(78,201,255,0.3);
+      z-index: 99;
+      transition: right 0.3s ease;
+      overflow-y: auto;
+      color: #ccc;
+    }
+    .detail-card.open {
+      right: 20px;
+    }
+    /* v22 字体美化：详情卡片层级清晰化（主公要求"字体等级没有明显的区分"） */
+    /* v22 字体美化：× 关闭按钮触摸友好 */
+    .detail-close {
+      cursor: pointer;
+      color: #9ab;
+      font-size: 24px;
+      line-height: 1;
+      float: right;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: background 0.2s, color 0.2s;
+      user-select: none;
+      margin-top: -4px;
+    }
+    .detail-close:hover {
+      background: rgba(255,107,107,0.25);
+      color: #FF6B6B;
+    }
+    /* ========================================
+       v23 主公"执行所有可选优化"批次
+       ======================================== */
+
+    /* Fix 1: × 关闭按钮增强质感（v22 已加） */
+    .detail-close {
+      cursor: pointer;
+      color: #9ab;
+      font-size: 24px;
+      line-height: 1;
+      float: right;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: background 0.2s, color 0.2s, transform 0.2s;
+      user-select: none;
+      margin-top: -4px;
+      font-weight: 300;
+    }
+    .detail-close:hover {
+      background: rgba(255,107,107,0.25);
+      color: #FF6B6B;
+      transform: rotate(90deg);  /* v23 旋转动效 */
+    }
+
+    /* Fix 2: 详情卡片浮动动效（box-shadow 增强质感） */
+    .detail-card {
+      animation: slideInRight 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+    @keyframes slideInRight {
+      from { transform: translateX(40px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .detail-card.open {
+      box-shadow: -4px 0 20px rgba(78,201,255,0.3),
+                  0 8px 32px rgba(0,0,0,0.6),
+                  inset 1px 0 0 rgba(255,255,255,0.05);
+    }
+
+    /* Fix 3: 子行业/社区面板也享受动效 */
+    #communityPanel {
+      animation: fadeSlideUp 0.3s ease-out;
+    }
+    @keyframes fadeSlideUp {
+      from { transform: translateY(10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* Fix 6: 节点面板（hover 详情卡片型）也升级 */
+    .node-tooltip, .node-detail-popup { font-size: 13px; }
+    .node-tooltip strong, .node-detail-popup strong { color: #4ec9ff; }
+
+    /* Fix 7: legend 11px 全部升级 */
+    #legend, #depthControl {
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    #legend h4 { font-size: 14px; color: #FFD700; font-weight: 700; }
+
+    /* Fix 8: communityPanel 时序显示修复：使用 display:block 强制显示（Bug 8 根因） */
+    #communityPanel[style*="display: none"] { display: none !important; }
+    #communityPanel:not([style*="display: none"]) { display: block; }
+
+    /* Fix 9: 移动端响应式（< 768px） */
+    @media (max-width: 768px) {
+      #header { padding: 10px 12px !important; flex-wrap: wrap; }
+      #header h1 { font-size: 18px !important; }
+      #header .stats { font-size: 12px !important; }
+      .header-buttons { flex-wrap: wrap; gap: 6px; }
+      .header-buttons button { font-size: 12px !important; padding: 5px 10px !important; }
+      #legend {
+        position: fixed !important;
+        top: auto !important;
+        bottom: 60px !important;
+        right: 12px !important;
+        left: 12px !important;
+        max-width: none !important;
+        font-size: 12px !important;
+        max-height: 35vh !important;
+      }
+      .detail-card {
+        width: 100% !important;
+        right: 0 !important;
+        left: 0 !important;
+      }
+      #communityPanel {
+        left: 12px !important;
+        right: 12px !important;
+        width: auto !important;
+        font-size: 12px !important;
+      }
+    }
+
+    /* Fix 10: 平板 768-1024px 适配 */
+    @media (min-width: 769px) and (max-width: 1024px) {
+      #header h1 { font-size: 20px !important; }
+      .detail-card { width: 360px !important; }
+    }
+
+    /* 主面板样式（不要破坏）*/
+    .detail-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid #4ec9ff;
+      background: rgba(78,201,255,0.12);
+      position: relative;
+    }
+    .detail-header h3 {
+      margin: 0;
+      color: #4ec9ff;
+      font-size: 20px;  /* 16→20px: H3 主标题层级更突出 */
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 6px rgba(78,201,255,0.3);
+    }
+    #detailSubtitle {
+      font-size: 13px;  /* 11→13px */
+      color: #aab;
+      margin-top: 6px;
+      font-weight: 500;
+    }
+    .detail-body {
+      padding: 16px;
+    }
+    .detail-section {
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    .detail-section h4 {
+      margin: 0 0 12px 0;
+      color: #FFD700;
+      font-size: 16px;  /* 13→16px: H4 子标题，金色高亮，层级清晰 */
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .detail-neighbors {
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .detail-neighbor-item {
+      padding: 7px 12px;
+      margin: 3px 0;
+      background: rgba(255,255,255,0.06);
+      border-left: 3px solid #4ec9ff;
+      font-size: 13px;  /* 12→13px */
+      cursor: pointer;
+      border-radius: 0 4px 4px 0;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .detail-neighbor-item:hover {
+      background: rgba(78,201,255,0.2);
+      transform: translateX(2px);
+    }
+    #detailBasic div {
+      padding: 6px 0;  /* 3→6px 更舒展 */
+      font-size: 14px;  /* 12→14px 正文 */
+      line-height: 1.7;
+    }
+    #detailBasic .label {
+      color: #9ab;  /* #888→#9ab 增强对比 */
+      display: inline-block;
+      width: 78px;
+      font-weight: 600;
+    }
+    #detailBasic .value {
+      color: #fff;
+      font-weight: 500;
+    }
+    #detailRelated div, #detailSources div {
+      padding: 5px 0;
+      font-size: 14px;  /* v35: 13→14px 主公要求字体放大 */
+      color: #ccc;
+      line-height: 1.7;
+    }
+    /* v35: 全局详情卡字体统一 */
+    #detailCard { font-size: 14px; }
+    #detailCard h3 { font-size: 18px; font-weight: 700; color: #4EC9FF; letter-spacing: 0.5px; }  /* v35: 标题字体统一 16→18px */
+    #detailCard h4 { font-size: 16px; font-weight: 700; color: #FFD700; margin-bottom: 8px; letter-spacing: 0.3px; }  /* v35: 标题字体统一 13→16px */
+    #detailCard label { font-size: 13px; color: #888; font-weight: 500; }
+    #detailCard .value { font-size: 14px; color: #ddd; font-weight: 500; }
+    </style>
+</head>
+<body>
+<div id="header">
+  <h1>知识图谱 2D 管道可视化</h1>
+  <span class="version-badge" title="P7 优化版（标签碰撞避免+数据漏斗+边梯度+4级LOD）">V7</span>
+  <div class="stats">
+    实体 <span id="statEntities">0</span> ·
+    边 <span id="statEdges">0</span> ·
+    行业 <span id="statIndustries">0</span>
+  </div>
+  <!-- v35: 主公要求重置/清除聚焦按钮转移到左下角（在 #bottomControls） -->
+</div>
+
+<!-- v35: 左下角控件区 -->
+<div id="bottomControls">
+  <button id="btnReset" class="btn">🔄 重置视图</button>
+  <button id="btnClearFocus" class="btn">🗑️ 清除聚焦</button>
+</div>
+
+<div id="info">
+  当前视图: <span class="focus-name" id="focusName">全景</span> ·
+  节点 <span class="focus-count" id="focusCount">0</span>
+  · 层级: <span id="dataFunnelLevel" style="color:#4ec9ff">L1 全景</span>
+</div>
+
+<!-- 优化 5: 搜索框移到 header（永久可见）-->
+<div id="searchBar">
+  <input type="text" id="searchInput" placeholder="🔍 搜索节点/类型/行业... (按 / 聚焦)" />
+  <div id="searchResults"></div>
+      <button id="aiToggleBtn" title="AI 智能问答" style="background:linear-gradient(135deg,#FFD700,#FFA500);color:#0a0a14;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;margin-left:6px;">🤖 AI</button>
+
+</div>
+
+<!-- P2.2: hover tooltip（节点详情） -->
+<div id="nodeTooltip" style="display:none"></div>
+
+<!-- P2.3: 右键菜单 -->
+<div id="contextMenu" style="display:none">
+  <div class="ctx-item" data-action="focus">🎯 聚焦到此节点</div>
+  <div class="ctx-item" data-action="hide">🙈 隐藏节点</div>
+  <div class="ctx-item" data-action="hideNeighbors">🙈 隐藏邻居</div>
+  <div class="ctx-item" data-action="showOnly">👁️ 仅显示邻居</div>
+  <div class="ctx-item" data-action="copy">📋 复制名称</div>
+  <div class="ctx-item" data-action="detail">📊 打开详情卡</div>
+</div>
+
+<!-- 方向 D: Breadcrumb 导航 + 行业快速切换（位置 top:100px 避开搜索框）-->
+<div id="breadcrumbBar" style="position:fixed;top:100px;left:50%;transform:translateX(-50%);display:flex;gap:6px;align-items:center;background:rgba(10,10,20,0.95);padding:6px 12px;border-radius:6px;border:1px solid #4ec9ff;z-index:95;font-size:12px;color:#fff">
+  <span class="bc-item" data-level="L0" style="cursor:pointer;color:#4ec9ff;font-weight:bold">🌐 全景</span>
+  <span style="color:#666">›</span>
+  <span id="bcIndustry" class="bc-item" data-level="L1" style="cursor:pointer;color:#888">行业</span>
+  <span style="color:#666">›</span>
+  <span id="bcType" class="bc-item" data-level="L2" style="cursor:pointer;color:#888">类型</span>
+  <span style="color:#666">›</span>
+  <span id="bcNode" class="bc-item" data-level="L4" style="cursor:pointer;color:#888">节点</span>
+  <select id="industrySwitcher" style="margin-left:12px;background:#222;color:#4ec9ff;border:1px solid #4ec9ff;border-radius:3px;padding:2px 6px;font-size:12px;cursor:pointer">
+    <option value="">切换行业...</option>
+  </select>
+</div>
+
+<!-- 方向 5: 节点详情卡（右侧滑出）-->
+    <!-- 方向 Q: AI 智能问答面板 -->
+    <div id="aiQAPanel" style="position:fixed;top:80px;right:20px;width:320px;
+      background:rgba(10,10,20,0.95);border:1px solid #FFD700;border-radius:12px;
+      padding:14px;z-index:96;display:none;backdrop-filter:blur(8px);
+      box-shadow:0 4px 16px rgba(255,215,0,0.3);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="color:#FFD700;font-size:13px;font-weight:600;">🤖 AI 智能问答 / Wiki Page</span>
+        <span id="aiQAClose" style="cursor:pointer;color:#888;font-size:18px;font-weight:bold;padding:0 6px;line-height:1;" title="关闭">✕</span>
+      </div>
+      <textarea id="aiQueryInput" placeholder="提问，如：电力设备有哪些核心机构？"
+        style="width:100%;height:60px;background:rgba(20,25,45,0.7);color:#e8e8f0;border:1px solid #4ec9ff;
+        border-radius:6px;padding:8px;font-size:12px;resize:vertical;"></textarea>
+      <button id="aiQueryBtn" style="margin-top:8px;background:#FFD700;color:#0a0a14;
+        border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;
+        cursor:pointer;width:100%;">🚀 提问</button>
+      <div id="aiQueryResult" style="margin-top:10px;font-size:12px;color:#aab;
+        line-height:1.6;max-height:200px;overflow-y:auto;"></div>
+    </div>
+
+    <div id="detailCard" class="detail-card">
+  <div class="detail-header">
+    <span id="detailClose" class="detail-close">✕</span>
+    <h3 id="detailTitle">节点详情</h3>
+    <div id="detailSubtitle"></div>
+  </div>
+  <div class="detail-body">
+    <div class="detail-section">
+      <h4>📌 基本信息</h4>
+      <div id="detailBasic"></div>
+    </div>
+    <div class="detail-section">
+<!-- v34 主公要求：删除邻居节点维度（与下方关联指标重复） -->
+    </div>
+    <div class="detail-section">
+      <h4>📊 关联指标/风险</h4>
+      <div id="detailRelated"></div>
+    </div>
+    <div class="detail-section">
+      <h4>📄 引用来源</h4>
+      <div id="detailSources"></div>
+    </div>
+  </div>
+</div>
+
+<div id="legend">
+  <div id="legendContent"></div>
+</div>
+
+<div id="industryHullsOverlay" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:45;"></div>
+      <!-- 方向 P: Time slider -->
+        <!-- 方向 R: importance 图例 -->
+<div id="timeSliderPanel" style="position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
+      background:rgba(10,10,20,0.95);border:1px solid #4ec9ff;border-radius:24px;
+      padding:8px 20px;z-index:90;display:flex;align-items:center;gap:12px;
+      backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(78,201,255,0.3);">
+      <span style="color:#4ec9ff;font-size:12px;font-weight:600;">📅 时间:</span>
+      <input type="range" id="timeSlider" min="2020" max="2026" value="2026" step="1"
+        style="width:200px;accent-color:#4ec9ff;cursor:pointer;" oninput="window.__applyTimeFilter(this.value)">
+      <span id="timeSliderLabel" style="color:#4ec9ff;font-size:12px;font-weight:600;min-width:48px;">2026</span>
+    </div>
+    <!-- 5 层导航控制按钮组 -->
+  <div id="graph"></div>
+<div id="loader">⏳ 加载数据中...</div>
+
+<!-- v25: zoom UI 已全部删除 -->
+
+<!-- B3 关键：加载完整 d3 v7（包含 d3-force + d3-timer 等所有依赖） -->
+<script src="https://unpkg.com/force-graph@1.43.5/dist/force-graph.min.js"></script>
+<script src="https://unpkg.com/d3@7.8.5/dist/d3.min.js"></script>
+<script>
+  const TYPE_COLORS = {
+    INDUSTRY: '#FFD700', ORG: '#4ec9ff', PRODUCT: '#ff6b9d',
+    TECH: '#a78bfa', POLICY: '#fbbf24', PERSON: '#34d399',
+    PLACE: '#60a5fa', INDICATOR: '#f87171', RISK: '#dc2626',
+    CONCEPT: '#94a3b8', CHANNEL: '#10b981',
+  };
+  
+  // 方向 1: 节点形状映射（按 type 分配 8 种形状 - 行业标准）
+  const TYPE_SHAPES = {
+    'INDUSTRY': 'hexagon',   // 行业 - 六边形
+    'ORG': 'roundedRect',    // 公司 - 圆角矩形
+    'PERSON': 'circle',      // 人物 - 圆形
+    'PRODUCT': 'parallelogram', // 产品 - 平行四边形
+    'TECH': 'diamond',       // 技术 - 菱形
+    'POLICY': 'rect',        // 政策 - 矩形
+    'PLACE': 'star',         // 地点 - 星形
+    'INDICATOR': 'ellipse',  // 指标 - 椭圆形
+    'RISK': 'triangle',      // 风险 - 三角形（警告）
+    'ECON_CONCEPT': 'circle', // 经济概念 - 圆形
+    'FIN_PRODUCT': 'roundedRect' // 金融产品 - 圆角矩形
+  };
+  
+  // 方向 2: 边类型样式映射（按 edge.type 分配颜色 + 箭头）
+  // v49 调整: 提亮颜色让深色背景清晰可见
+  const EDGE_STYLES = {
+    '监管': { color: 'rgba(255,100,100,1)', width: 2.0, arrow: 'full', label: '监管' },
+    '投资': { color: 'rgba(255,220,80,1)', width: 1.8, arrow: 'full', label: '投资' },
+    '供需': { color: 'rgba(120,200,255,1)', width: 1.5, arrow: 'arrow', label: '供需' },
+    '合作': { color: 'rgba(140,240,140,1)', width: 1.5, arrow: 'arrow', label: '合作' },
+    '竞争': { color: 'rgba(255,170,100,1)', width: 1.3, arrow: 'arrow', label: '竞争', dash: [5, 3] },
+    '相关': { color: 'rgba(200,200,220,0.7)', width: 0.6, arrow: 'none', label: '相关' },
+    '上下游': { color: 'rgba(200,150,240,1)', width: 1.5, arrow: 'arrow', label: '上下游' },
+    '客户': { color: 'rgba(255,215,0,1)', width: 1.5, arrow: 'arrow', label: '客户' },
+    '供应': { color: 'rgba(170,230,255,1)', width: 1.5, arrow: 'arrow', label: '供应' },
+    '战略联盟': { color: 'rgba(180,180,255,1)', width: 1.5, arrow: 'arrow', label: '战略联盟' },
+    '技术链': { color: 'rgba(160,255,200,1)', width: 1.5, arrow: 'arrow', label: '技术链' },
+    '子公司': { color: 'rgba(220,160,255,1)', width: 1.5, arrow: 'arrow', label: '子公司' },
+    '母公司': { color: 'rgba(240,180,220,1)', width: 1.5, arrow: 'arrow', label: '母公司' },
+    '股东': { color: 'rgba(255,200,150,1)', width: 1.5, arrow: 'arrow', label: '股东' },
+    '对比': { color: 'rgba(100,220,255,1)', width: 1.5, arrow: 'arrow', label: '对比' }
+  };
+  const EDGE_DEFAULT = { color: 'rgba(220,220,240,0.7)', width: 0.8, arrow: 'none', label: '关系' };
+
+  const TYPE_SIZE = {
+    INDUSTRY: 8, ORG: 5, PRODUCT: 4, TECH: 4, POLICY: 4,
+    PERSON: 5, PLACE: 4, INDICATOR: 5, RISK: 6, CONCEPT: 5, CHANNEL: 4,
+  };
+
+  let rawData = null;
+  let graphData = null;
+  let Graph = null;
+  let currentFocus = null;
+  let currentTypeFocus = null;
+  let selectedNode = null;
+
+  // ===========================
+  // 1. 加载 data.json
+  // ===========================
+  async function loadData() {
+    // v15 数据补全后：加 cache-busting 避免浏览器缓存旧版本 data.json
+    const cacheBuster = '?v=' + Date.now();
+    const res = await fetch('./data.json' + cacheBuster, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' }
+    });
+    rawData = await res.json();
+    console.log('[V5] 加载原始数据:', {
+      entities: rawData.entities.length,
+      edges: rawData.edges.length,
+      industries: new Set(rawData.entities.map(e => e.industry)).size
+    });
+    transformData();
+    initGraph();
+    initControls();
+    initLegend();
+    updateStats();
+    document.getElementById('loader').classList.add('hidden');
+  }
+
+  // ===========================
+  // 2. 转换为 force-graph 格式
+  // ===========================
+  function transformData() {
+    // v15: 补全 importance / publishDate + 实时计算 degree
+    const nodes = rawData.entities.map(e => ({
+      id: e.id,
+      name: e.name,
+      type: e.type,
+      industry: e.industry,
+      color: e.color || TYPE_COLORS[e.type] || '#888',
+      typeLabel: e.typeLabel || e.type,
+      desc: e.desc || '',
+      val: TYPE_SIZE[e.type] || 4,
+      sector: e.sector || '',
+      subIndustry: e.subIndustry || '',
+      core: e.core || false,
+      importance: e.importance || 0,  // v15 数据补全
+      publishDate: e.publishDate || '',  // v15 数据补全
+      degree: 0,  // v15 数据补全（下面实时计算）
+      _logicRefs: e._logicRefs || [],  // v43 R1+ : 真实逻辑链（D1 抽取的 premise/conclusion/reasoning）
+      _indicators: e._indicators || [],  // v44 P0-1 : 关联指标（enrich_v44 PG attach）
+      _frameworks: e._frameworks || [],  // v44 P0-2 : 研究框架（6 大维度）
+      _relatedEntities: e._relatedEntities || [],  // v44 P0-3 : 关联实体（含 description）
+    }));
+
+    const idSet = new Set(nodes.map(n => n.id));
+    const links = [];
+    const degreeCount = {};
+    for (const e of rawData.edges) {
+      if (idSet.has(e.source) && idSet.has(e.target) && e.source !== e.target) {
+        links.push({
+          source: e.source,
+          target: e.target,
+          type: e.type || '相关',
+          color: e.color || '#444',
+          confidence: e.confidence || 0.5,  // v44 P1-5: 边粗细=confidence
+        });
+        // 计算 degree
+        degreeCount[e.source] = (degreeCount[e.source] || 0) + 1;
+        degreeCount[e.target] = (degreeCount[e.target] || 0) + 1;
+      }
+    }
+    // 把 degree 写回 nodes
+    nodes.forEach(n => { n.degree = degreeCount[n.id] || 0; });
+
+    graphData = { nodes, links };
+    window.graphData = graphData;
+    console.log('[V5] 转换完成:', {
+      nodes: graphData.nodes.length,
+      links: graphData.links.length
+    });
+  }
+
+  // ===========================
+  // 3. 初始化图（V5 关键：强聚类 + 强排斥，不依赖全局 d3）
+  // ===========================
+  function initGraph() {
+    Graph = ForceGraph()
+      (document.getElementById('graph'))
+      .graphData(graphData)
+      .backgroundColor('rgba(27, 38, 59, 0)')   // v49: 透明背景，让 #graph 容器的渐变显示出来
+      .nodeId('id')
+
+      
+      .nodeLabel(node => `<div style="background:#1a1a2e;color:#fff;padding:6px 10px;border-radius:6px;border:1px solid #4ec9ff;font-size:12px;max-width:240px">
+        <div style="color:#4ec9ff;font-weight:600;margin-bottom:4px">${escapeHtml(node.name)}</div>
+        <div style="color:#888;font-size:12px;">${node.typeLabel} · ${node.industry || '未分类'}</div>
+        ${node.desc ? `<div style="margin-top:4px;font-size:12px;line-height:1.4">${escapeHtml(node.desc.slice(0, 100))}${node.desc.length > 100 ? '...' : ''}</div>` : ''}
+      </div>`)
+      .nodeColor(node => {
+        // 方向 6: dim 效果 - 未匹配的节点变灰
+        if (node._dimmed) return 'rgba(100,100,100,0.2)';
+        return node.color;
+      })
+      .nodeVal(node => {
+        // v48 Obsidian 风格: 节点大小用 log2 而非 sqrt（避免放大时增长过快）
+        if (node._dimmed) return 0.5;
+        const deg = node.degree || 0;
+        return Math.log2(deg + 2) * 1.5;
+      })  // v48: 节点大小按 log2（Obsidian 风格）
+      // P3.1+P3.3: 节点边框 + 智能标签
+      .nodeCanvasObjectMode(() => 'after')
+      .nodeCanvasObject((node, ctx, globalScale) => {
+        // 方向 B: 标签碰撞检测 - 缩放级别决定标签显示
+        if (globalScale < 0.7) return;  // 太远不显示
+        if (node._tourDim || node._dimmed) return;  // dim 的不显示
+        if (!node.name) return;
+        // 方向 N: Smart label placement - 高密度/高 importance 节点自动隐藏标签
+        // v15 数据补全后使用 importance 作为代理（>10 邻居已映射 importance=3）
+        const importance = node.importance || 0;
+        // v42 主公选项 P1: Obsidian Text Fade Threshold 3 级模式
+        // 设计哲学：缩小文字渐隐，大节点文字 fade-in 更早，小节点晚
+        // importance=3 (hub): 0.5 globalScale 即可见（核心枢纽永远可见）
+        // importance=2 (中等): 0.7 globalScale 可见
+        // importance=1 (普通): 1.5 globalScale 可见（远离时不显示避免遮挡）
+        // importance=0 (孤立): 2.0 globalScale 可见
+        if (globalScale < 0.5) return;  // 太远完全不显示
+        if (importance >= 3) {
+          if (globalScale < 0.5) return;  // hub：只要不太远就显示
+        } else if (importance >= 2) {
+          if (globalScale < 0.7) return;  // 中等：缩到 0.7 才显示
+        } else if (importance >= 1) {
+          if (globalScale < 1.5) return;  // 普通：缩到 1.5 才显示（避免遮挡）
+        } else {
+          if (globalScale < 2.0) return;  // 孤立：缩到 2.0 才显示
+        }
+        
+        // v29: 节点大小计算共享常量（避免硬编码不一致）
+        const _nodeSize = Math.sqrt((node.degree || 0) + 1) * 2.0;   // v29 节点大小
+        
+        // 方向 B: 标签碰撞检测（简化版 - 基于相邻节点距离）
+        const truncated = node.name.length > 8 && globalScale < 1.2 ? node.name.slice(0, 7) + '…' : node.name;
+        const _imp = node.importance || 0;
+        // 方向 C: 核心枢纽双重视觉编码 - importance=3 加发光环
+        if (_imp === 3) {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, _nodeSize + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 50, 50, 0.4)';
+          ctx.lineWidth = 2 / globalScale;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, _nodeSize + 7, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 100, 100, 0.2)';
+          ctx.lineWidth = 1 / globalScale;
+          ctx.stroke();
+        }
+        // v52: 早期 showLabel 代码已删除（带黄色/红色/黑色背景框）
+        // 文字渲染改用下方 v51 的 showLabel 代码（文字本身带颜色 + 描边）
+        
+        // 方向 1: 按 type 画不同形状
+        if (node.x === undefined) return;
+        const shape = TYPE_SHAPES[node.type] || 'circle';
+        const size = node.val || 4;
+        
+        ctx.beginPath();
+        if (shape === 'hexagon') {
+          // 六边形（INDUSTRY）
+          for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
+            const x = node.x + Math.cos(angle) * size;
+            const y = node.y + Math.sin(angle) * size;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        } else if (shape === 'roundedRect') {
+          // 圆角矩形（ORG / FIN_PRODUCT）
+          const w = size * 1.8, h = size * 1.4, r = size * 0.3;
+          ctx.moveTo(node.x - w/2 + r, node.y - h/2);
+          ctx.lineTo(node.x + w/2 - r, node.y - h/2);
+          ctx.arcTo(node.x + w/2, node.y - h/2, node.x + w/2, node.y - h/2 + r, r);
+          ctx.lineTo(node.x + w/2, node.y + h/2 - r);
+          ctx.arcTo(node.x + w/2, node.y + h/2, node.x + w/2 - r, node.y + h/2, r);
+          ctx.lineTo(node.x - w/2 + r, node.y + h/2);
+          ctx.arcTo(node.x - w/2, node.y + h/2, node.x - w/2, node.y + h/2 - r, r);
+          ctx.lineTo(node.x - w/2, node.y - h/2 + r);
+          ctx.arcTo(node.x - w/2, node.y - h/2, node.x - w/2 + r, node.y - h/2, r);
+          ctx.closePath();
+        } else if (shape === 'rect') {
+          // 矩形（POLICY）
+          ctx.rect(node.x - size * 1.2, node.y - size * 0.9, size * 2.4, size * 1.8);
+        } else if (shape === 'diamond') {
+          // 菱形（TECH）
+          ctx.moveTo(node.x, node.y - size);
+          ctx.lineTo(node.x + size, node.y);
+          ctx.lineTo(node.x, node.y + size);
+          ctx.lineTo(node.x - size, node.y);
+          ctx.closePath();
+        } else if (shape === 'parallelogram') {
+          // 平行四边形（PRODUCT）
+          ctx.moveTo(node.x - size + size * 0.3, node.y - size);
+          ctx.lineTo(node.x + size, node.y - size);
+          ctx.lineTo(node.x + size - size * 0.3, node.y + size);
+          ctx.lineTo(node.x - size, node.y + size);
+          ctx.closePath();
+        } else if (shape === 'triangle') {
+          // 三角形（RISK - 警告）
+          ctx.moveTo(node.x, node.y - size);
+          ctx.lineTo(node.x + size, node.y + size);
+          ctx.lineTo(node.x - size, node.y + size);
+          ctx.closePath();
+        } else if (shape === 'star') {
+          // 星形（PLACE）
+          for (let i = 0; i < 10; i++) {
+            const r = i % 2 === 0 ? size : size * 0.4;
+            const angle = (i / 10) * Math.PI * 2 - Math.PI / 2;
+            const x = node.x + Math.cos(angle) * r;
+            const y = node.y + Math.sin(angle) * r;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        } else if (shape === 'ellipse') {
+          // 椭圆形（INDICATOR）
+          ctx.ellipse(node.x, node.y, size * 1.3, size * 0.8, 0, 0, Math.PI * 2);
+        } else {
+          // 圆形（PERSON / ECON_CONCEPT / 默认）
+          ctx.arc(node.x, node.y, size, 0, Math.PI * 2);
+        }
+        ctx.fillStyle = node.color || '#888';
+        ctx.fill();
+        
+        // 方向 4: 节点重要性分级 - 按重要性显示边框颜色（v49 调亮）
+        let borderColor = 'rgba(220,220,240,0.7)';
+        let borderW = Math.min(2, (node.degree || 0) / 30);
+        if (importance >= 3) {
+          borderColor = 'rgba(255,100,100,1)';  // 核心 - 亮红
+          borderW = Math.max(borderW, 2);
+        } else if (importance >= 2) {
+          borderColor = 'rgba(255,215,0,1)';  // 重要 - 亮金
+          borderW = Math.max(borderW, 1.5);
+        } else if (importance >= 1) {
+          borderColor = 'rgba(240,240,255,0.9)';  // 普通 - 亮白
+        }
+        if (borderW > 0.3) {
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = borderW;
+          ctx.stroke();
+        }
+        
+        // 优化 1+4: 4 级 LOD 智能标签（标签碰撞避免）
+        const degree = node.degree || 0;
+        const zoomK = globalScale;
+        let showLabel = false;
+        if (zoomK < 0.5) {
+          showLabel = degree >= 50;
+        } else if (zoomK < 1.0) {
+          showLabel = degree >= 20;
+        } else if (zoomK < 2.0) {
+          showLabel = degree >= 5;
+        } else {
+          showLabel = true;  // zoom > 2 时显示所有标签
+        }
+        
+        // 优化 1: 标签碰撞避免 - 已显示标签的节点记录位置
+        if (showLabel && node.name && node.x !== undefined) {
+          // v51: 字体大小绑节点大小 + 文字本身带颜色（按 TYPE_COLORS），无背景框
+          const nodeSize = node.val || Math.log2((node.degree || 0) + 2) * 1.5;
+          const nodeDiameter = nodeSize * 2;
+          const baseFontSize = nodeDiameter * 0.7;
+          const fontSize = Math.max(8, Math.min(16, baseFontSize));
+          const label = node.name.length > 14 ? node.name.slice(0, 14) + '...' : node.name;
+          ctx.font = `bold ${fontSize}px Sans-Serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          
+          // v51: 文字颜色 = 实体类型颜色（TYPE_COLORS）
+          const textColor = TYPE_COLORS[node.type] || '#e8e8f0';
+          ctx.fillStyle = textColor;
+          
+          // v51: 描边（深色，提升可读性但不是背景框）
+          ctx.strokeStyle = 'rgba(13, 27, 42, 0.95)';
+          ctx.lineWidth = 3;
+          ctx.lineJoin = 'round';
+          const labelY = node.y + nodeSize + 3;
+          ctx.strokeText(label, node.x, labelY);
+          // 主文字（v51 文字本身带颜色，不画背景框）
+          ctx.fillText(label, node.x, labelY);
+        }
+      })
+      .nodeRelSize(4)
+      // 方向 2: 边类型样式（按 EDGE_STYLES + 箭头 + 标签）
+      .linkColor(link => {
+        // 方向 6: dim 效果 - 未匹配的边变暗
+        if (link._dimmed) return 'rgba(80,80,80,0.15)';
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        // 弱化弱边
+        const w = link.weight || 0.5;
+        if (w < 0.5) return style.color.replace(/[\d.]+\)$/, '0.2)');
+        return style.color;
+      })
+      .linkWidth(link => {
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        const w = link.confidence || 0.5;
+        // v48 Obsidian 风格: 边粗细适中（不要 2.5 倍系数）
+        const multiplier = w >= 0.9 ? 1.5 : (w >= 0.7 ? 1.0 : 0.7);
+        return style.width * multiplier;
+      })
+      // 方向 A: 边聚合 - 用 linkCanvasObject 画弧形（force-graph 实际渲染层）
+      .linkCanvasObjectMode(link => 'replace')  // v36-A2: 全部边用 canvas 画弧（默认隐藏原生线）
+      .linkCanvasObject((link, ctx, globalScale) => {
+        // v36-A2: 取消 _isAggregated 限制，让所有边都可弧形
+        if (link._edgeHidden) return;
+        // 弧形聚合 - 用 _curveOffset 实现多边不同弯曲度
+        const src = typeof link.source === 'object' ? link.source : { x: 0, y: 0 };
+        const tgt = typeof link.target === 'object' ? link.target : { x: 0, y: 0 };
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        const mx = (src.x + tgt.x) / 2;
+        const my = (src.y + tgt.y) / 2;
+        const dx = tgt.x - src.x;
+        const dy = tgt.y - src.y;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        // v37 彻底方案：距离自适应弧度（强弧 + 跨行业超弧 + 视觉弱化）
+        let curvature, alpha = 1;
+        if (dist < 60) {
+          curvature = 0; alpha = 0.95;  // 短边：直线
+        } else if (dist < 150) {
+          curvature = 0.25; alpha = 0.7;  // 中边：明显弧 + 渐变
+        } else if (dist < 400) {
+          curvature = 0.5; alpha = 0.45;  // 长边：强弧 + 透明度弱
+        } else {
+          curvature = 0.85; alpha = 0.3;  // 跨行业超长：超弧 + 透明虚化
+        }
+        // 同对多边追加 _curveOffset 偏移，避免重叠
+        const offset = dist * (curvature + (link._curveOffset || 0));
+        const nx = -dy / dist * offset;
+        const ny = dx / dist * offset;
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.quadraticCurveTo(mx + nx, my + ny, tgt.x, tgt.y);
+        ctx.strokeStyle = style.color.replace(/[\d.]+\)$/, '0.7)');
+        ctx.lineWidth = style.width * 0.9;
+        ctx.stroke();
+      })
+      // 方向 2: 箭头方向（按 edge.type 显示）
+      .linkDirectionalArrowLength(link => {
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        if (style.arrow === 'full') return 5;
+        if (style.arrow === 'arrow') return 3;
+        return 0;
+      })
+      .linkDirectionalArrowRelPos(link => {
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        return style.arrow === 'full' ? 1 : 0.95;
+      })
+      .linkDirectionalParticles(link => (link.weight || 0.5) >= 0.7 ? 2 : 0)
+      .linkDirectionalParticleSpeed(link => 0.005)
+      // 方向 2: 边标签（关系类型）
+      .linkLabel(link => {
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        return (link.weight || 0.5) >= 0.7 ? style.label : '';
+      })
+      .linkCanvasObjectMode(link => 'after')
+      .linkCanvasObject((link, ctx, globalScale) => {
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        const w = link.weight || 0.5;
+        // 只在强边 + zoom > 1.0 时显示标签
+        if (w < 0.7 || globalScale < 1.0) return;
+        if (style.dash) {
+          ctx.setLineDash(style.dash.map(d => d / globalScale));
+        } else {
+          ctx.setLineDash([]);
+        }
+        // link 在 force-graph 中 source/target 是对象
+        const src = typeof link.source === 'object' ? link.source : null;
+        const tgt = typeof link.target === 'object' ? link.target : null;
+        if (!src || !tgt || src.x === undefined || tgt.x === undefined) return;
+        
+        // 画边中点标签
+        const mx = (src.x + tgt.x) / 2;
+        const my = (src.y + tgt.y) / 2;
+        const label = style.label;
+        const fontSize = 9 / globalScale;
+        ctx.font = `bold ${fontSize}px Sans-Serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const labelW = ctx.measureText(label).width;
+        
+        // 背景框
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(mx - labelW/2 - 2/globalScale, my - fontSize/2 - 1, labelW + 4/globalScale, fontSize + 2);
+        // 边框（按边颜色）
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = 0.5 / globalScale;
+        ctx.strokeRect(mx - labelW/2 - 2/globalScale, my - fontSize/2 - 1, labelW + 4/globalScale, fontSize + 2);
+        // 文字
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, mx, my);
+      })
+      .linkDirectionalArrowColor(link => {
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        return style.color;
+      })
+      // v29: 箭头显示（参考 Obsidian showArrow=true）—— 删除 L1008 把箭头全关掉的代码
+      // 原 L950 已经根据 EDGE_STYLES.arrow 正确返回长度（full=5 / arrow=3 / none=0）
+      .linkDirectionalArrowLength(link => {   // v29: 恢复箭头显示（之前被 L1008 误关为 0）
+        const style = EDGE_STYLES[link.type] || EDGE_DEFAULT;
+        if (style.arrow === 'full') return 6;     // v29: 5 → 6（线条粗 2.5x，箭头也加大）
+        if (style.arrow === 'arrow') return 4;    // v29: 3 → 4
+        return 0;
+      })
+      // B2 关键：让 force-graph 内部 d3-force 立即停止（alphaDecay 极大值）
+      // 这样它的内部 d3-force 在 1 tick 内就停止，不会与我们的独立 d3-force 冲突
+      .d3AlphaDecay(1)        // B2: 立即停止（默认 0.0228）
+      .d3VelocityDecay(0.4)
+      .warmupTicks(0)         // B2: 不要预热
+      .onNodeClick(onNodeClick)
+      .onNodeHover(onNodeHover)
+      .onBackgroundClick(() => {
+        if (selectedNode) {
+          selectedNode = null;
+          updateFocusDisplay();
+        }
+      });
+
+    window.Graph = Graph  // 暴露给 window（测试 + 调试 + 外部控制用 - 必须在链式结束后）
+
+    // ===========================
+    // 方向 J: 行业聚类 HTML overlay（yFiles / FalkorDB 优秀实践）
+    // ===========================
+    function __renderIndustryHulls() {
+      if (!graphData || !graphData.nodes || !graphData.nodes.length) return;
+      const groups = {};
+      graphData.nodes.forEach(n => {
+        const ind = n.industry || 'unknown';
+        if (!groups[ind]) groups[ind] = [];
+        if (n.x !== undefined && n.y !== undefined) groups[ind].push({ x: n.x, y: n.y });
+      });
+      const hulls = [];
+      for (const ind of Object.keys(groups)) {
+        const pts = groups[ind];
+        if (pts.length < 3) continue;
+        const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+        const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+        const minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+        hulls.push({ ind: ind, minX: minX, maxX: maxX, minY: minY, maxY: maxY, nodeCount: pts.length });
+      }
+      window.__industryHulls = hulls;
+      console.log('[方向 J] 行业聚类已计算:', hulls.length, '个行业');
+    }
+
+    function __renderIndustryHullsOverlay() {
+      const container = document.getElementById('industryHullsOverlay');
+      if (!container || !window.__industryHulls) return;
+      container.innerHTML = '';
+      const focusInd = window.__dataFunnel && window.__dataFunnel.currentIndustry;
+      if (!focusInd) return;
+      const hulls = window.__industryHulls;
+      const target = hulls.find(h => h.ind === focusInd);
+      if (!target) return;
+      if (!window.Graph || typeof window.Graph.graph2ScreenCoords !== 'function') return;
+      const xy1 = window.Graph.graph2ScreenCoords(target.minX, target.minY);
+      const xy2 = window.Graph.graph2ScreenCoords(target.maxX, target.maxY);
+      const x1 = xy1[0], y1 = xy1[1], x2 = xy2[0], y2 = xy2[1];
+      const left = Math.min(x1, x2), right = Math.max(x1, x2);
+      const top = Math.min(y1, y2), bottom = Math.max(y1, y2);
+      const div = document.createElement('div');
+      div.className = 'industry-hull-tag';
+      div.textContent = '📍 ' + target.ind + ' · ' + target.nodeCount + ' 节点';
+      div.style.cssText = 'position: fixed; left: ' + left + 'px; top: ' + (top - 28) + 'px; background: rgba(78,201,255,0.2); border: 1px solid rgba(78,201,255,0.7); color: #4ec9ff; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; z-index: 50; backdrop-filter: blur(8px); box-shadow: 0 2px 8px rgba(78,201,255,0.4); pointer-events: none; white-space: nowrap;';
+      container.appendChild(div);
+    }
+
+    setTimeout(function() { __renderIndustryHulls(); __renderIndustryHullsOverlay(); }, 6000);
+    setInterval(function() { __renderIndustryHulls(); __renderIndustryHullsOverlay(); }, 3000);
+    console.log('[方向 J] 行业聚类 overlay 函数已注册（v10 修复版）');
+
+    // ===========================
+    // 方向 N: Smart label placement (已在 nodeCanvasObject 中实现)
+    // ===========================
+
+    // ===========================
+    // 方向 O: Cluster auto-grouping - 邻居相似度感知着色
+    // ===========================
+    function __applyClusterColoring() {
+      if (!graphData || !graphData.nodes || !graphData.links) return;
+      const neighborIndustry = {};
+      graphData.nodes.forEach(function(n) { neighborIndustry[n.id] = {}; });
+      graphData.links.forEach(function(l) {
+        var s = typeof l.source === 'object' ? l.source.id : l.source;
+        var t = typeof l.target === 'object' ? l.target.id : l.target;
+        var sourceNode = graphData.nodes.find(function(n) { return n.id === s; });
+        var targetNode = graphData.nodes.find(function(n) { return n.id === t; });
+        if (sourceNode && targetNode) {
+          var tInd = targetNode.industry || 'unknown';
+          neighborIndustry[s][tInd] = (neighborIndustry[s][tInd] || 0) + 1;
+        }
+      });
+      graphData.nodes.forEach(function(n) {
+        var neigh = neighborIndustry[n.id] || {};
+        var total = 0;
+        Object.keys(neigh).forEach(function(k) { total += neigh[k]; });
+        if (total > 0) {
+          var entries = Object.keys(neigh).map(function(k) { return [k, neigh[k]]; });
+          entries.sort(function(a, b) { return b[1] - a[1]; });
+          n._clusterDominant = entries[0][0];
+          n._clusterRatio = (entries[0][1] / total * 100).toFixed(0);
+        }
+      });
+      window.__clusterStats = {
+        totalNodes: graphData.nodes.length,
+        clusteredNodes: graphData.nodes.filter(function(n) { return n._clusterDominant; }).length
+      };
+      console.log('[方向 O] Cluster auto-grouping 已计算:', window.__clusterStats);
+
+
+    // v26: 方向 S subIndustry 已融合到 aggPanel
+    // ===========================
+    // 方向 T: Community detection（基于邻居投票的社区发现）
+    // ===========================
+    function __applyCommunityDetection() {
+      if (!graphData || !graphData.nodes || !graphData.links) return;
+      const neighborTypes = {};
+      graphData.nodes.forEach(function(n) { neighborTypes[n.id] = {}; });
+
+      // Step 1: 投票（邻居类型 + 行业）
+      graphData.links.forEach(function(l) {
+        var s = typeof l.source === 'object' ? l.source.id : l.source;
+        var t = typeof l.target === 'object' ? l.target.id : l.target;
+        var sn = graphData.nodes.find(function(n) { return n.id === s; });
+        var tn = graphData.nodes.find(function(n) { return n.id === t; });
+        if (sn && tn) {
+          var sKey = (sn.type || 'unknown') + '|' + (sn.industry || 'unknown');
+          var tKey = (tn.type || 'unknown') + '|' + (tn.industry || 'unknown');
+          neighborTypes[s][tKey] = (neighborTypes[s][tKey] || 0) + 1;
+          neighborTypes[t][sKey] = (neighborTypes[t][sKey] || 0) + 1;
+        }
+      });
+
+      // Step 2: 给每个节点分社区 ID（同 type+sector 视为同一社区）
+      var communityMap = {};
+      var communityId = 0;
+      graphData.nodes.forEach(function(n) {
+        var key = (n.type || 'unknown') + '|' + (n.industry || n.sector || 'unknown');
+        if (!(key in communityMap)) {
+          communityMap[key] = communityId++;
+        }
+        n._communityId = communityMap[key];
+        n._communityKey = key;
+      });
+
+      // Step 3: 统计社区大小
+      var communityCount = {};
+      graphData.nodes.forEach(function(n) {
+        communityCount[n._communityId] = (communityCount[n._communityId] || 0) + 1;
+      });
+
+      window.__communityStats = {
+        totalNodes: graphData.nodes.length,
+        totalCommunities: Object.keys(communityCount).length,
+        topCommunities: Object.entries(communityCount).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 10)
+      };
+      console.log('[方向 T] Community detection 已完成:', window.__communityStats);
+
+      // v19 fix Bug 4: communityPanel DOM + 内容
+      var communityPanel = document.createElement('div');
+      communityPanel.id = 'communityPanel';
+      communityPanel.style.cssText = 'position:fixed;top:480px;left:20px;width:280px;max-height:240px;overflow-y:auto;background:rgba(10,10,20,0.95);border:1px solid #9b59b6;border-radius:8px;padding:12px;z-index:95;backdrop-filter:blur(8px);display:none;';
+      communityPanel.innerHTML = '<div style="color:#9b59b6;font-weight:600;font-size:12px;margin-bottom:8px;">🕸 社区检测 TOP 10</div><div id="communityList" style="font-size:12px;color:#ccc;line-height:1.6;">加载中...</div>';
+      document.body.appendChild(communityPanel);
+
+      var cstats = window.__communityStats;
+      if (cstats && cstats.communityCount) {
+        var stats = cstats.communityCount;
+        var sorted = Object.keys(stats).map(function(k){ return { id: k, count: stats[k] }; }).sort(function(a,b){return b.count - a.count;}).slice(0, 10);
+        var total = Object.keys(stats).length;
+        var html = '共 <b style="color:#FFD700;">' + total + '</b> 个社区<br>';
+        sorted.forEach(function(c){
+          html += '<div style="padding:3px 0;display:flex;justify-content:space-between;"><span>社区 #' + c.id + '</span><span style="color:#4ec9ff;font-weight:600;">' + c.count + ' 节点</span></div>';
+        });
+        var list = document.getElementById('communityList');
+        if (list) list.innerHTML = html;
+      }
+      console.log('[v19-Bug4] communityPanel 已生成');
+    }
+    setTimeout(__applyCommunityDetection, 6000);
+    console.log('[方向 R/S/T] 3 个新方向已注册');
+    }
+
+    // ===========================
+    // 方向 P: Time slider - 时间演化筛选
+    // ===========================
+    window.__applyTimeFilter = function(year) {
+      var label = document.getElementById('timeSliderLabel');
+      if (label) label.textContent = year;
+      if (!graphData || !graphData.nodes) return;
+      var yearNum = parseInt(year);
+      var filtered = graphData.nodes.filter(function(n) {
+        // 现在所有节点都有 publishDate（v15 数据补全）
+        if (!n.publishDate) return false;
+        var nodeYear = parseInt(n.publishDate.slice(0, 4));
+        return nodeYear <= yearNum;
+      });
+      var filteredIds = new Set(filtered.map(function(n) { return n.id; }));
+      var filteredLinks = graphData.links.filter(function(l) {
+        var s = typeof l.source === 'object' ? l.source.id : l.source;
+        var t = typeof l.target === 'object' ? l.target.id : l.target;
+        return filteredIds.has(s) && filteredIds.has(t);
+      });
+      if (typeof Graph !== 'undefined' && typeof Graph.graphData === 'function') {
+        Graph.graphData({ nodes: filtered, links: filteredLinks });
+      }
+      console.log('[方向 P] 时间筛选:', year, '节点:', filtered.length, '边:', filteredLinks.length);
+    };
+
+    // ===========================
+    // 方向 Q: AI 智能问答（GraphRAG 简化版）
+    // ===========================
+    window.__runAIQuery = __runAIQuery;  // 暴露到 window
+    function __initAIQA() {
+      var btn = document.getElementById('aiQueryBtn');
+      var input = document.getElementById('aiQueryInput');
+      var panel = document.getElementById('aiQAPanel');
+      if (!btn || !input || !panel) {
+        console.warn('[方向 Q] DOM 元素缺失:', { btn: !!btn, input: !!input, panel: !!panel });
+        return;
+      }
+      var searchInput = document.getElementById('searchInput');
+      if (searchInput) {
+        searchInput.addEventListener('focus', function() {
+          panel.style.display = 'block';
+        });
+      }
+      // AI 入口按钮直接显示面板
+      var aiToggleBtn = document.getElementById('aiToggleBtn');
+      if (aiToggleBtn) {
+        aiToggleBtn.addEventListener('click', function() {
+          panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        });
+      }
+      // v28: 关闭按钮（点击 ✕ 隐藏 aiQAPanel）
+      var aiQAClose = document.getElementById('aiQAClose');
+      if (aiQAClose) {
+        aiQAClose.addEventListener('click', function() {
+          panel.style.display = 'none';
+        });
+      }
+      // v28: 点击外部区域也关闭（点击 aiQAPanel 外部）
+      document.addEventListener('click', function(e) {
+        if (panel.style.display === 'block' &&
+            !panel.contains(e.target) &&
+            e.target.id !== 'aiToggleBtn' &&
+            e.target.id !== 'searchInput') {
+          panel.style.display = 'none';
+        }
+      });
+      btn.addEventListener('click', function() { __runAIQuery(input.value.trim()); });
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          __runAIQuery(input.value.trim());
+        }
+      });
+      console.log('[方向 Q] AI 智能问答已初始化（v14 修复版）');
+    }
+
+    function __runAIQuery(query) {
+      var result = document.getElementById('aiQueryResult');
+      if (!result || !query) return;
+      result.innerHTML = '<div style="color:#4ec9ff">🤔 思考中...</div>';
+      setTimeout(function() {
+        if (!graphData || !graphData.nodes) {
+          result.innerHTML = '<div style="color:#ff6b6b">❌ 图数据未加载</div>';
+          return;
+        }
+        var ql = query.toLowerCase();
+        var intent = 'all';
+        if (ql.indexOf('核心') >= 0 || ql.indexOf('重要') >= 0 || ql.indexOf('top') >= 0) intent = 'top';
+        else if (ql.indexOf('多少') >= 0 || ql.indexOf('统计') >= 0) intent = 'stats';
+        else if (ql.indexOf('关系') >= 0 || ql.indexOf('连接') >= 0) intent = 'relations';
+        var industries = [];
+        var seen = {};
+        graphData.nodes.forEach(function(n) {
+          if (n.industry && !seen[n.industry]) { seen[n.industry] = true; industries.push(n.industry); }
+        });
+        var matchedIndustry = null;
+        for (var i = 0; i < industries.length; i++) {
+          if (ql.indexOf(industries[i].toLowerCase()) >= 0) { matchedIndustry = industries[i]; break; }
+        }
+        var matched = graphData.nodes;
+        if (matchedIndustry) matched = matched.filter(function(n) { return n.industry === matchedIndustry; });
+        var html = '<div style="color:#FFD700;font-weight:600;margin-bottom:6px;">💡 回答</div>';
+        if (matched.length === 0) {
+          html += '<div style="color:#aab">未找到匹配节点。试试："电力设备的核心机构"</div>';
+        } else {
+          if (matchedIndustry) html += '<div>匹配行业: <b style="color:#4ec9ff">' + matchedIndustry + '</b>（' + matched.length + ' 节点）</div>';
+          if (intent === 'top' || intent === 'all') {
+            var sorted = matched.slice().sort(function(a, b) { return (b.importance || 0) - (a.importance || 0); });
+            var top = sorted.slice(0, 8);
+                        // v28: 显示关系/邻居/产品（增强 wiki page 内容）
+            html += '<div style="margin-top:8px;color:#4ec9ff;font-size:12px;font-weight:600;">🔗 关系网络（前 8 节点）</div>';
+            for (var k = 0; k < Math.min(top.length, 8); k++) {
+              var tn = top[k];
+              var neighbors = [];
+              if (graphData.links) {
+                graphData.links.forEach(function(l) {
+                  var s = typeof l.source === 'object' ? l.source.id : l.source;
+                  var t = typeof l.target === 'object' ? l.target.id : l.target;
+                  if (s === tn.id) neighbors.push({dir: '→', other: t, type: l.type || 'related'});
+                  else if (t === tn.id) neighbors.push({dir: '←', other: s, type: l.type || 'related'});
+                });
+              }
+              if (neighbors.length > 0) {
+                var nName = tn.name || tn.id;
+                var shortNeighbors = neighbors.slice(0, 3);
+                var relItems = shortNeighbors.map(function(nb) {
+                  var otherNode = graphData.nodes.find(function(x) { return x.id === nb.other; });
+                  var otherName = otherNode ? (otherNode.name || otherNode.id) : nb.other;
+                  return '<span style="color:#888;font-size:11px;">' + nb.dir + '</span> <span style="color:#FFD700;">' + escapeHtml(otherName) + '</span> <span style="color:#666;font-size:10px;">(' + (nb.type || 'related') + ')</span>';
+                }).join('<br>');
+                html += '<div style="padding:3px 0 3px 8px;border-left:2px solid #FFD700;margin-bottom:4px;font-size:11px;">' +
+                  '<div style="color:#fff;font-weight:600;">' + escapeHtml(nName) + '</div>' +
+                  relItems +
+                  (neighbors.length > 3 ? '<div style="color:#666;font-size:10px;">... 还有 ' + (neighbors.length - 3) + ' 个邻居</div>' : '') +
+                '</div>';
+              }
+            }
+            html += '<div style="margin-top:6px;color:#aab">核心节点 TOP 8:</div>';
+            for (var j = 0; j < top.length; j++) {
+              var n = top[j];
+              var label = n.importance === 3 ? '⭐⭐⭐' : n.importance === 2 ? '⭐⭐' : '⭐';
+              html += '<div style="padding:3px 0;color:#fff">' + (j+1) + '. ' + label + ' ' + (n.name || n.id) + ' <span style="color:#888;font-size:12px;">(' + (n.type || 'N/A') + ')</span></div>';
+            }
+          }
+          if (intent === 'stats') {
+            html += '<div style="margin-top:6px;color:#aab">统计:</div>';
+            html += '<div>· 节点数: <b>' + matched.length + '</b></div>';
+            var types = {};
+            matched.forEach(function(n) { types[n.type || 'unknown'] = (types[n.type || 'unknown'] || 0) + 1; });
+            html += '<div>· 类型分布:</div>';
+            var typeEntries = Object.keys(types).map(function(k) { return [k, types[k]]; });
+            typeEntries.sort(function(a, b) { return b[1] - a[1]; });
+            typeEntries.forEach(function(pair) {
+              html += '<div style="padding-left:8px;color:#4ec9ff">' + pair[0] + ': ' + pair[1] + '</div>';
+            });
+          }
+        }
+        result.innerHTML = html;
+        console.log('[方向 Q] AI 问答:', { query: query, intent: intent, matchedIndustry: matchedIndustry, matchedCount: matched.length });
+      }, 300);
+    }
+
+    setTimeout(__applyClusterColoring, 5000);
+    setTimeout(__initAIQA, 2000);
+    console.log('[方向 N/O/P/Q] 4 个新方向已注册');
+
+    // B4 关键修复：基于 ForceAtlas2 标准重写 d3-force 配置
+    // 搜索资料：ForceAtlas2 论文 + NetworkX + Gephi 实现
+    // 核心改进：degree-weighted repulsion + edge-weight-driven attraction
+    if (typeof d3 !== 'undefined' && d3.forceSimulation) {
+      // 先停掉旧仿真（如果有）
+      if (window.__d3Sim) { try { window.__d3Sim.stop(); } catch(e) {} }
+
+      // B4.1: 计算节点度数（用于 degree-weighted repulsion）
+      const degreeMap = {};
+      graphData.links.forEach(l => {
+        const s = typeof l.source === 'string' ? l.source : l.source.id;
+        const t = typeof l.target === 'string' ? l.target : l.target.id;
+        degreeMap[s] = (degreeMap[s] || 0) + 1;
+        degreeMap[t] = (degreeMap[t] || 0) + 1;
+      });
+      graphData.nodes.forEach(n => {
+        n.degree = degreeMap[n.id] || 0;
+        n.size = Math.sqrt(n.degree) * 3 + 2;  // B4.4: 节点大小按度数
+      });
+
+      // B4.3: 计算边的 weight（基于已有关系类型）
+      graphData.links.forEach(l => {
+        const weightMap = { '监管': 0.9, '投资': 0.8, '供需': 0.7, '合作': 0.6, '竞争': 0.5, '相关': 0.3 };
+        l.weight = weightMap[l.type] || 0.5;
+      });
+
+      // B5 关键修复：同行业节点按目标位置强制聚类（forceX + forceY）
+      // 这是主公 17:14:15 反馈'同类聚类效果不明显'的真正修复
+      // 策略：每个行业分配一个目标位置 → 同行业节点被 forceX/Y 拉向同一位置
+      
+      // B5.1: 计算每个行业的目标位置（环形布局 + 行业度数加权）
+      const industryTarget = {};
+      const industries = [...new Set(graphData.nodes.map(n => n.industry).filter(Boolean))];
+      const numIndustries = industries.length;
+      const orbitRadius = Math.sqrt(numIndustries) * 200;  // 行业环形半径
+      industries.forEach((ind, i) => {
+        const angle = (i / numIndustries) * 2 * Math.PI;
+        // 行业中心位置 = 环形上的点
+        industryTarget[ind] = {
+          x: Math.cos(angle) * orbitRadius,
+          y: Math.sin(angle) * orbitRadius
+        };
+      });
+      // 给每个节点设置 industryTarget（未分类节点用原点）
+      graphData.nodes.forEach(n => {
+        if (n.industry && industryTarget[n.industry]) {
+          n.targetX = industryTarget[n.industry].x;
+          n.targetY = industryTarget[n.industry].y;
+        } else {
+          n.targetX = 0;
+          n.targetY = 0;
+        }
+      });
+      // v29.7: 预设节点初始位置 = targetX/Y + 随机偏移 → simulation 几乎不需要移动
+      // 根因：节点原本从 (0,0) 开始，simulation 需要 5-10 秒收敛，造成视觉"频繁跳动"
+      // 修复：预设初始位置在 target 附近，simulation 1-2 tick 就稳定
+      graphData.nodes.forEach(n => {
+        if (n.targetX !== undefined && n.targetY !== undefined) {
+          n.x = n.targetX + (Math.random() - 0.5) * 60;   // v29.7: ±30px 随机偏移
+          n.y = n.targetY + (Math.random() - 0.5) * 60;
+          n.vx = 0;                                          // v29.7: 初始速度为 0
+          n.vy = 0;
+        }
+      });
+      
+      console.log('[B5] 行业目标位置已分配:', {
+        industries: numIndustries,
+        orbitRadius: orbitRadius,
+        sampleTargets: Object.entries(industryTarget).slice(0, 3)
+      });
+
+      // v29 关键修复：参考 Obsidian graph.json 配置 + 主公要求
+      // 根因 B6：centerStrength=0.05 太弱 + alphaDecay=0.002 太慢 → 节点抖动频繁
+      // 修复：增强引力 + 缩小线长度 + 加快稳定 + 防重叠增强 + 行业引力聚类
+      window.__d3Sim = d3.forceSimulation(graphData.nodes)
+        // v36 主公选项 A: 同时调 5 个 force 参数（让行业聚类主导）
+      // v29.1: 排斥力 → v36: -600 → -200（减弱 3 倍避免排斥散开）
+        // v40 主公选项 P: Obsidian 模式（基于调研真实默认值：center 0.5, repel 10, link force 1, link distance 250）
+// 核心哲学：让物理自然决定距离，不要强行短距离（避免弹簧拉伸）
+        .force('charge', d3.forceManyBody()
+          .strength(-50)   // v48 Obsidian 风格: -10 → -50（适度排斥，避免节点堆挤）
+          .distanceMax(400))                                 // v48: 300 → 400
+        // v48: link distance 100 → 80（紧凑布局）
+        .force('link', d3.forceLink(graphData.links)
+          .id(d => d.id)
+          .distance(d => 80)   // v48: 100 → 80
+          .strength(d => (d.weight || 0.5) * 1.0))
+        // v48: center 减弱（避免节点堆中心）
+        .force('center', d3.forceCenter(0, 0).strength(0.3)) // v48: 0.5 → 0.3
+        // v48: 碰撞防重叠增强
+        .force('collide', d3.forceCollide(d => (d.size || 5) + 25))  // v48: +15 → +25
+        // v40 主公选项 P: Obsidian 模式 — 不调用 forceX/Y（让物理自然决定位置）
+        // 调研依据：Obsidian 用户社区建议 center=0，靠 link+repel 自组织
+        // v41 主公选项 M1: 完整模仿 Obsidian 动画（基于调研 Reddit d3 v5 + Obsidian 论坛）
+        // 核心哲学：Big Bang 起始 + 慢冷却 + 平滑速度衰减
+        .alpha(0.5)                                            // v41: 0.3 → 0.5（更明显的 Big Bang 起始动画）
+        .alphaMin(0.001)                                       // v41: 保持（让 simulation 真的能停下来）
+        .alphaDecay(0.04)                                      // v41: 0.08 → 0.04（Obsidian 模式：更慢冷却，动画更优雅）
+        // v31: 删除 alphaTarget(0.05) — 这是导致节点持续晃动的真正根因！
+        .velocityDecay(0.6)                                    // v41: 0.3 → 0.6（Obsidian 模式：更平滑的速度衰减）
+        .restart();
+
+      // P1.3: 周期重启（但加入节流：每 8 秒一次，避免频繁重绘）
+      if (window.__breathInterval) {
+        clearInterval(window.__breathInterval);
+        window.__breathInterval = null;
+      }
+      // v29: 删除 P1.3 持续呼吸式动画（真正根因）—— 8 秒重启 simulation 导致节点永远在抖
+      // 修复：让 simulation 一次性收敛后完全停止（参考 Obsidian 静态显示风格）
+      // 如果将来需要重启 simulation（如加新节点），手动调用 window.__d3Sim.alpha(1).restart()
+      // window.__breathInterval = setInterval(...) // v29: 完全删除
+
+      console.log('[B4] ForceAtlas2 标准 d3-force 仿真已启动:', {
+        nodes: graphData.nodes.length,
+        links: graphData.links.length,
+        avgDegree: (Object.values(degreeMap).reduce((s,v) => s+v, 0) / graphData.nodes.length).toFixed(2),
+        maxDegree: Math.max(...Object.values(degreeMap)),
+        alpha: window.__d3Sim.alpha(),
+        d3_version: d3.version || 'unknown'
+      });
+    } else {
+      console.error('[B4] d3-force 3.x 未加载！');
+    }
+
+    // 适配窗口大小
+    window.addEventListener('resize', () => {
+      Graph.width(window.innerWidth).height(window.innerHeight - 56);
+    });
+    Graph.width(window.innerWidth).height(window.innerHeight - 56);
+    
+    // P1.1: LOD 配置（zoom-based visibility）v47 优化
+    window.__lodConfig = {
+      enable: true,
+      hubThreshold: 3,
+      edgeOpacityFull: 1.0,
+      edgeOpacityLow: 0.15,
+      edgeThreshold: 800,
+      zoomHubOnly: 0.4,
+      zoomLabelShow: 1.5,    // v47 新增: zoom > 1.5 才显示全部标签
+      zoomLabelHide: 3.0,    // v47 新增: zoom > 3.0 隐藏低 importance 标签
+      fontSizeMin: 14,       // v47 新增: 放大时最小字号
+      fontSizeMax: 22        // v47 新增: 放大时最大字号
+    };
+    
+    // P1.1: 节点可见性函数 v47 反向修复（放大时更多隐藏）
+    window.__updateNodeVisibility = function() {
+      if (!window.__lodConfig.enable || !Graph) return;
+      try {
+        const zoomK = Graph.zoom();
+        const allNodes = Graph.graphData().nodes;
+        if (zoomK < 0.5) {
+          // L1: 很远 - 只显示 hub（importance>=2）
+          allNodes.forEach(n => {
+            n._hidden = (n.importance || 0) < 2;
+          });
+        } else if (zoomK < 1.2) {
+          // L2: 中等 - 显示 importance>=1
+          allNodes.forEach(n => {
+            n._hidden = (n.importance || 0) < 1;
+          });
+        } else if (zoomK < 2.0) {
+          // L3: 放大 - 只显示 importance>=2 或 degree>=10
+          allNodes.forEach(n => {
+            n._hidden = (n.importance || 0) < 2 && (n.degree || 0) < 10;
+          });
+        } else {
+          // L4: 很近（放到最大）- 只显示 importance>=3（核心枢纽）
+          allNodes.forEach(n => {
+            n._hidden = (n.importance || 0) < 3;
+          });
+        }
+      } catch(e) {}
+    };
+    
+    // P1.2: 边透明度动态调整 v47 反向修复（放大时更透明）
+    window.__updateEdgeOpacity = function() {
+      if (!window.__lodConfig.enable || !Graph) return;
+      try {
+        const zoomK = Graph.zoom();
+        const links = Graph.graphData().links;
+        // v47 反向修复: 放大时边变细变透明（避免视觉乱）
+        if (zoomK < 0.5) {
+          Graph.linkOpacity(0.05);  // 远：几乎不可见
+        } else if (zoomK < 1.2) {
+          Graph.linkOpacity(0.3);   // 中：低透明度
+        } else if (zoomK < 2.0) {
+          Graph.linkOpacity(0.5);   // 放大：中透明度
+        } else {
+          Graph.linkOpacity(0.7);   // 很近：较清晰但仍透明
+        }
+      } catch(e) {}
+    };
+    
+    // P1.1+P1.2: 绑定 zoom 事件
+    Graph.onZoom(() => {
+      window.__updateNodeVisibility();
+      window.__updateEdgeOpacity();
+    });
+    
+    // P1.3: 初始调用 LOD
+    window.__updateEdgeOpacity();
+    
+    console.log('[P1.1-P1.3] LOD 配置完成');
+    
+    // P2.5: 缩放范围限制
+    if (typeof Graph.minZoom === 'function') Graph.minZoom(0.1);
+    if (typeof Graph.maxZoom === 'function') Graph.maxZoom(10);
+    
+    /* v25: zoom 按钮已删除（主公决策：默认鼠标滚轮缩放） */
+    
+    // v29: 拖拽节点时提升 alpha，松手后让 simulation 完全停止（解决"频繁跳动"根因）
+    // v41 主公选项 M1: Obsidian 拖动模式（基于 Reddit d3js 实现）
+    // 拖动开始：alpha(0.2).restart()（轻度重热）
+    // 拖动结束：alpha(0.1).restart()（渐进冷却，让图自然回稳）
+    Graph.onNodeDrag(() => {
+      if (window.__d3Sim) {
+        window.__d3Sim.alpha(0.2).restart();  // v41: alphaTarget(0.3) → alpha(0.2)（Obsidian 局部重热）
+      }
+    });
+    Graph.onNodeDragEnd(() => {
+      if (window.__d3Sim) {
+        window.__d3Sim.alpha(0.1);            // v41: alphaTarget(0)+alpha(0) → alpha(0.1)（渐进冷却，模拟 Obsidian 自然停止）
+      }
+    });
+    
+    // P2.1+P2.2+P2.3: 初始化交互
+    setupSearch();
+    setupTooltip();
+    // ===========================
+    // v18 方向 U: 孤立节点折叠
+    // ===========================
+    (function() {
+      window.__isolateHidden = false;
+      window.__toggleIsolated = function() {
+        if (!window.graphData || !window.graphData.nodes) return false;
+        window.__isolateHidden = !window.__isolateHidden;
+        var isolated = window.graphData.nodes.filter(function(n) { return (n.importance || 0) === 0; });
+        isolated.forEach(function(n) { n.__hidden = window.__isolateHidden; });
+        if (typeof Graph !== 'undefined') {
+          try { Graph.refresh && Graph.refresh(); } catch(e) {}
+        }
+        console.log('[方向 U] 孤立节点', window.__isolateHidden ? '已隐藏 (' + isolated.length + ')' : '已显示');
+        return window.__isolateHidden;
+      };
+
+      // 创建孤立节点折叠按钮
+      var isoBtn = document.createElement('button');
+      isoBtn.id = 'btnToggleIsolated';
+      isoBtn.className = 'btn';
+      isoBtn.textContent = '👁 孤立节点: 显示';
+      isoBtn.style.cssText = 'position:fixed;top:170px;left:20px;background:#34495e;color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;z-index:90;box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+      document.body.appendChild(isoBtn);
+      isoBtn.addEventListener('click', function() {
+        var hidden = window.__toggleIsolated();
+        isoBtn.textContent = '👁 孤立节点: ' + (hidden ? '隐藏' : '显示');
+      });
+
+      // ===========================
+      // v18 方向 V: 时间+行业+重要性组合筛选
+      // ===========================
+      var expBtn = document.createElement('button');
+      expBtn.id = 'btnExportJSON';
+      expBtn.className = 'btn';
+      expBtn.textContent = '📥 导出JSON';
+      expBtn.style.cssText = 'position:fixed;top:55px;left:50%;transform:translateX(74px);background:#9b59b6;color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;z-index:98;box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+      document.body.appendChild(expBtn);
+      expBtn.addEventListener('click', function() {
+        if (!window.graphData || !window.graphData.nodes) return;
+        var data = {
+          meta: { exportTime: new Date().toISOString(), totalNodes: window.graphData.nodes.length, totalLinks: window.graphData.links.length },
+          nodes: window.graphData.nodes.map(function(n) { return { id: n.id, name: n.name, type: n.type, industry: n.industry, subIndustry: n.subIndustry, importance: n.importance, publishDate: n.publishDate, communityId: (n._communityId !== undefined ? n._communityId : n.__communityId) }; }),
+          links: window.graphData.links.map(function(l) { return { source: l.source.id || l.source, target: l.target.id || l.target, type: l.type }; }),
+        };
+        var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'kg_export_' + new Date().toISOString().slice(0,10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log('[方向 W] JSON 已导出');
+      });
+
+      // ===========================
+      // v28: 3D 视图 + depthPanel + Z 深度 已删除（主公要求）
+      // ===========================
+      // v19 优化 4: 报告导出 (Markdown)
+      // ===========================
+      var rptBtn = document.createElement('button');
+      rptBtn.id = 'btnExportReport';
+      rptBtn.className = 'btn';
+      rptBtn.textContent = '📄 导出报告';
+      rptBtn.style.cssText = 'position:fixed;top:55px;left:50%;transform:translateX(-82px);background:#ff6b35;color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;z-index:98;box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+      document.body.appendChild(rptBtn);
+      rptBtn.addEventListener('click', function() {
+        if (!window.graphData || !window.graphData.nodes) return;
+        var nodes = window.graphData.nodes, links = window.graphData.links;
+        var md = '# 知识图谱可视化报告\n\n**生成时间**: ' + new Date().toLocaleString('zh-CN') + '\n\n**统计**: ' + nodes.length + ' 节点 / ' + links.length + ' 边\n\n';
+        var indCount = {};
+        nodes.forEach(function(n) { if (n.industry) indCount[n.industry] = (indCount[n.industry] || 0) + 1; });
+        md += '## 行业分布\n\n';
+        Object.keys(indCount).sort(function(a,b){return indCount[b]-indCount[a];}).slice(0,10).forEach(function(ind) {
+          md += '- ' + ind + ': ' + indCount[ind] + ' 节点\n';
+        });
+        md += '\n## 核心节点 TOP 10\n\n';
+        var top = nodes.slice().sort(function(a,b){return (b.importance||0)-(a.importance||0);}).slice(0,10);
+        top.forEach(function(n,i) {
+          var star = n.importance===3?'⭐⭐⭐':n.importance===2?'⭐⭐':'⭐';
+          md += (i+1) + '. ' + star + ' **' + String(n.name||'').replace(/\|/g,'\\|') + '** (' + n.type + ')\n';
+        });
+        md += '\n## 时间分布\n\n';
+        var yearCount = {};
+        nodes.forEach(function(n) { if (n.publishDate) { var y = n.publishDate.slice(0,4); yearCount[y] = (yearCount[y]||0)+1; }});
+        Object.keys(yearCount).sort().forEach(function(y) { md += '- ' + y + ': ' + yearCount[y] + ' 节点\n'; });
+        var blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'kg_report_' + new Date().toISOString().slice(0,10) + '.md';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log('[v19-Report] 已导出');
+      });
+
+
+
+
+      console.log('[v18 U/V/W + v19 3D/Report/AI] 6 个新功能已注册');
+    })();
+
+    setupContextMenu();
+    setupNeighborHighlight();
+    
+    // P2.6: 键盘快捷键
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;  // 输入框时不触发
+      if (e.key === 'r' || e.key === 'R') {
+        // R: 重置视图
+        if (window.__d3Sim) window.__d3Sim.alpha(1).restart();
+        if (Graph && typeof Graph.zoomToFit === 'function') Graph.zoomToFit(400, 50);
+      } else if (e.key === 'f' || e.key === 'F') {
+        // F: 清除聚焦
+        document.getElementById('btnClearFocus')?.click();
+      } else if (e.key === ' ') {
+        // 空格: 暂停/恢复动画 (v29: 完全停止 — 参考 Obsidian 静态风格)
+        e.preventDefault();
+        if (window.__d3Sim) {
+          window.__d3Sim.alphaTarget(0);   // v29: 0.05 → 0（完全停止 simulation）
+          window.__d3Sim.alpha(0);          // v29: 立即归零 alpha
+        }
+      } else if (e.key === '/') {
+        // /: 聚焦搜索框
+        e.preventDefault();
+        document.getElementById('searchInput')?.focus();
+      }
+    });
+    
+    console.log('[P2.1-P2.6] 交互优化完成（搜索/tooltip/右键/拖拽/缩放/快捷键）');
+    
+    // 优化 2: 数据漏斗 - 初始化层级状态
+    // 方向 3: 5 层渐进式披露（L0 总览 → L1 行业 → L2 类别 → L3 节点 → L4 详情）
+    window.__dataFunnel = {
+      level: 'L0',  // 方向 3: 起始层级 L0 总览
+      currentIndustry: null,
+      currentType: null,
+      currentNode: null
+    };
+    
+    // 方向 4: 计算节点重要性（度数 + 类型奖励）
+    graphData.nodes.forEach(n => {
+      const degree = n.degree || 0;
+      let importance = 0;
+      if (degree >= 30) importance = 3;
+      else if (degree >= 10) importance = 2;
+      else if (degree >= 3) importance = 1;
+      n.importance = importance;
+    });
+    
+    // 方向 3: 应用 5 层数据漏斗
+    window.__applyDataFunnel = function() {
+      const funnel = window.__dataFunnel;
+      const levelEl = document.getElementById('dataFunnelLevel');
+      if (!levelEl) return;
+      
+      if (funnel.level === 'L0') {
+        // L0: 总览 - 28 个行业 hub
+        const industryHubIds = new Set();
+        const industries = {};
+        graphData.nodes.forEach(n => {
+          if (n.industry) {
+            if (!industries[n.industry]) industries[n.industry] = { maxDegree: 0, hub: null };
+            const deg = n.degree || 0;
+            if (deg > industries[n.industry].maxDegree) {
+              industries[n.industry].maxDegree = deg;
+              industries[n.industry].hub = n.id;
+            }
+          }
+        });
+        Object.values(industries).forEach(v => industryHubIds.add(v.hub));
+        graphData.nodes.forEach(n => {
+          n._hidden = !industryHubIds.has(n.id);
+        });
+        const count = industryHubIds.size;
+        levelEl.textContent = 'L0 总览（' + count + ' 行业 hub）';
+        levelEl.style.color = '#4ec9ff';
+        console.log('[方向 3] L0 总览:', count, '行业 hub');
+        
+      } else if (funnel.level === 'L1') {
+        // L1: 行业 - 当前行业所有节点（100-300）
+        const ind = funnel.currentIndustry;
+        graphData.nodes.forEach(n => {
+          n._hidden = ind ? (n.industry !== ind) : false;
+        });
+        const visible = graphData.nodes.filter(n => !n._hidden).length;
+        levelEl.textContent = 'L1 行业: ' + (ind || '全部') + '（' + visible + ' 节点）';
+        levelEl.style.color = '#FFD700';
+        console.log('[方向 3] L1 行业:', ind, visible, '节点');
+        
+      } else if (funnel.level === 'L2') {
+        // L2: 类别 - 当前 type 内所有节点（50-100）
+        const type = funnel.currentType;
+        graphData.nodes.forEach(n => {
+          n._hidden = type ? (n.type !== type) : false;
+        });
+        const visible = graphData.nodes.filter(n => !n._hidden).length;
+        levelEl.textContent = 'L2 类别: ' + (type || '') + '（' + visible + ' 节点）';
+        levelEl.style.color = '#90EE90';
+        console.log('[方向 3] L2 类别:', type, visible, '节点');
+        
+      } else if (funnel.level === 'L3') {
+        // L3: 节点 - 当前节点 + 1-hop 邻居（30-50）
+        const nodeId = funnel.currentNode;
+        const neighbors = new Set();
+        if (nodeId) {
+          neighbors.add(nodeId);
+          graphData.links.forEach(l => {
+            const src = typeof l.source === 'object' ? l.source.id : l.source;
+            const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+            if (src === nodeId) neighbors.add(tgt);
+            if (tgt === nodeId) neighbors.add(src);
+          });
+        }
+        graphData.nodes.forEach(n => {
+          n._hidden = !neighbors.has(n.id);
+        });
+        levelEl.textContent = 'L3 节点: ' + (nodeId || '') + ' + 邻居（' + neighbors.size + '）';
+        levelEl.style.color = '#FF6B6B';
+        console.log('[方向 3] L3 节点:', nodeId, neighbors.size);
+        
+      } else if (funnel.level === 'L4') {
+        // L4: 详情 - 节点 + 详情卡（右侧滑出）
+        const nodeId = funnel.currentNode;
+        const neighbors = new Set();
+        if (nodeId) {
+          neighbors.add(nodeId);
+          graphData.links.forEach(l => {
+            const src = typeof l.source === 'object' ? l.source.id : l.source;
+            const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+            if (src === nodeId) neighbors.add(tgt);
+            if (tgt === nodeId) neighbors.add(src);
+          });
+        }
+        graphData.nodes.forEach(n => {
+          n._hidden = !neighbors.has(n.id);
+        });
+        levelEl.textContent = 'L4 详情: ' + (nodeId || '') + '（' + neighbors.size + ' + 详情卡）';
+        levelEl.style.color = '#FF1493';
+        // 调用详情卡函数（方向 5 才会实现，先 stub）
+        if (typeof window.__showDetailCard === 'function') {
+          const node = graphData.nodes.find(n => n.id === nodeId);
+          if (node) window.__showDetailCard(node);
+        } else {
+          console.log('[方向 3] L4 详情: ' + nodeId + '（详情卡待实现 - 方向 5）');
+        }
+      }
+      
+      try { if (Graph.refresh) Graph.refresh(); else if (Graph._rerender) Graph._rerender(); } catch(e) {}
+    };
+    
+    // 方向 3 v34: 点击节点直接打开总览卡（不进入下一层滦进式披露）
+    // v34 修复：主公反馈“点节点后默认从细节跳转到总览跳动”，改由 click 直接打开详情卡（默认 L3 总览）
+    Graph.onNodeClick(node => {
+      if (!node) return;
+      const funnel = window.__dataFunnel;
+      // v34: 直接定 L3 总览层级（作为默认展示点）→ 调用 showDetailCard
+      funnel.level = 'L3';
+      funnel.currentNode = node.id;
+      funnel.currentType = null;  // v34: 不限定 type（按全部出边分类）
+      funnel.currentIndustry = node.industry || null;
+      // 不调用 __applyDataFunnel（避免触发 filtering 跳动）；直接显示详情卡
+      try { if (typeof window.__showDetailCard === 'function') window.__showDetailCard(node); } catch(e) {}
+    });
+    
+    // 方向 3: 默认进入 L0 总览
+    setTimeout(() => {
+      window.__applyDataFunnel();
+      console.log('[方向 3] 5 层渐进式披露 L0 总览已启动');
+    }, 3000);
+    
+    // ===========================
+    // 方向 5: 节点详情卡
+    // ===========================
+    
+
+window.__showDetailCard = function(node) {
+      const card = document.getElementById('detailCard');
+      if (!card || !node) return;
+      
+      const typeColor = TYPE_COLORS[node.type] || '#888';
+      const shape = TYPE_SHAPES[node.type] || 'circle';
+      const shapeLabel = {hexagon:'六边形', roundedRect:'圆角矩形', circle:'圆形', rect:'矩形', diamond:'菱形', parallelogram:'平行四边形', triangle:'三角形', star:'星形', ellipse:'椭圆形'}[shape] || shape;
+      
+      document.getElementById('detailTitle').innerHTML = `<span style="color:${typeColor}">${escapeHtml(node.name || node.id)}</span>`;
+      document.getElementById('detailSubtitle').textContent = `${node.typeLabel || node.type} · 形状: ${shapeLabel}`;
+      
+      // 基本信息
+      const _imp3 = node.importance || 0;
+      const importanceLabel = _imp3 === 3 ? '⭐⭐⭐ 核心' : _imp3 === 2 ? '⭐⭐ 重要' : _imp3 === 1 ? '⭐ 普通' : '⚪ 边缘';
+      document.getElementById('detailBasic').innerHTML = `
+        <div><span class="label">ID:</span><span class="value">${escapeHtml(node.id)}</span></div>
+        <div><span class="label">类型:</span><span class="value">${escapeHtml(node.typeLabel || node.type || 'N/A')}</span></div>
+        <div><span class="label">行业:</span><span class="value">${escapeHtml(node.industry || '未分类')}</span></div>
+        <div><span class="label">子行业:</span><span class="value">${escapeHtml(node.subIndustry || '未分类')}</span></div>
+        <div><span class="label">度数:</span><span class="value">${node.degree || 0}</span></div>
+        <div><span class="label">重要性:</span><span class="value">${importanceLabel}</span></div>
+        <div><span class="label">时间:</span><span class="value">${escapeHtml(node.publishDate || '未知')}</span></div>
+        <div><span class="label">社区:</span><span class="value">#${(node._communityId !== undefined ? node._communityId : (node.communityId !== undefined ? node.communityId : '未分配'))}</span></div>
+        ${node.desc ? `<div><span class="label">描述:</span><span class="value">${escapeHtml(node.desc.slice(0, 200))}</span></div>` : ''}
+      `;
+      
+      // v34: 删除邻居节点维度（主公要求：与下方关联指标重复）
+      // 保留可视化逻辑但不渲染 DOM（避免与下方出现重复）
+      const neighbors = [];
+      const neighborEdges = new Map();
+      graphData.links.forEach(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        if (src === node.id) {
+          if (!neighborEdges.has(tgt)) neighborEdges.set(tgt, []);
+          neighborEdges.get(tgt).push({type: l.type, weight: l.weight, dir: 'in'});
+          if (!neighbors.find(n => n.id === tgt)) neighbors.push(graphData.nodes.find(nn => nn.id === tgt));
+        } else if (tgt === node.id) {
+          if (!neighborEdges.has(src)) neighborEdges.set(src, []);
+          neighborEdges.get(src).push({type: l.type, weight: l.weight, dir: 'out'});
+          if (!neighbors.find(n => n.id === src)) neighbors.push(graphData.nodes.find(nn => nn.id === src));
+        }
+      });
+      // v34: 不再填充 detailNeighborCount/detailNeighbors DOM（v34 已从 HTML 中删除容器）
+
+      // R1 主公选项：从 knowledge_logic 表查询的真实逻辑链（替换 v34 buildLogicContentV34 假逻辑）
+      // 数据源：data.json 中每个 entity 的 _logicRefs 字段（含 premise/conclusion/reasoning/dimension）
+      function buildRealLogicContent(n) {
+        const ctx = [];
+        const logicRefs = n._logicRefs || [];
+
+        if (logicRefs.length === 0) {
+          // 无真实逻辑关联的节点：明确告知，避免假逻辑
+          ctx.push({ stage: '说明', text: `该节点暂无来自知识图谱的真实逻辑链记录（仅基础描述与关系）。` });
+          return ctx;
+        }
+
+        // 优先取 is_core=true 的逻辑链（最多 3 条）
+        const coreLogics = logicRefs.filter(l => l.is_core).slice(0, 3);
+        const displayLogics = coreLogics.length > 0 ? coreLogics : logicRefs.slice(0, 2);
+
+        displayLogics.forEach((logic, idx) => {
+          // 真实逻辑链：前提 → 推理 → 结论
+          if (logic.premise) {
+            ctx.push({
+              stage: '前提',
+              text: logic.premise.length > 200 ? logic.premise.slice(0, 200) + '...' : logic.premise,
+              logicType: logic.logic_type,
+              confidence: logic.confidence
+            });
+          }
+          if (logic.intermediate) {
+            ctx.push({
+              stage: '推理',
+              text: logic.intermediate.length > 150 ? logic.intermediate.slice(0, 150) + '...' : logic.intermediate
+            });
+          }
+          if (logic.conclusion) {
+            ctx.push({
+              stage: '结论',
+              text: logic.conclusion.length > 200 ? logic.conclusion.slice(0, 200) + '...' : logic.conclusion
+            });
+          }
+          // 应用场景作为补充
+          if (logic.apply_scenario) {
+            ctx.push({
+              stage: '场景',
+              text: logic.apply_scenario
+            });
+          }
+        });
+
+        // 统计信息
+        ctx.push({
+          stage: '统计',
+          text: `该节点共有 ${logicRefs.length} 条逻辑链记录（${displayLogics.length} 条已展开）`
+        });
+
+        return ctx;
+      }
+      const logicContent = buildRealLogicContent(node);
+      // 渲染在 detailRelated 之下的逻辑区（不占 v34 关系类别区位置）
+      // 在 detailRelated 变量后补一行：逻辑区 HTML（问题：当前逻辑区为关系类别—— 我们把它插到更下的位置）
+      window.__v34LogicContent = logicContent;  // 暂存，后面补充渲染
+
+// v34: 按关系类别展示（重构 v33 5 维度）— 主公要求：竞争/对比/上下游/客户/产品/技术/供应/战略联盟
+      // 实测：边 type 18 种（对比766/供应606/上下游566/监管487/合作397/竞争364/客户237/投资149/战略联盟133/技术链70...）
+      // 上下游 vs 客户 vs 供应 是独立类型，不重复
+      // 产品/技术 — 边无 type，产品用 n.type='PRODUCT'、技术用 n.type='TECH'
+      // 逻辑 — 去掉描述 v33（之主公反馈“逻辑=公司简介”），改为从出边构建逻辑论述
+
+      // 1. 按关系类别分组（从出边出发）
+      const relationGroups = {
+        '对比': [],
+        '供应': [],
+        '上下游': [],
+        '竞争': [],
+        '合作': [],
+        '客户': [],
+        '战略联盟': [],
+        '投资': [],
+        '监管': []
+      };
+      // 产品/技术 — 按节点 type 收集邻居中的 PRODUCT/TECH
+      const productRelations = [];
+      const techRelations = [];
+
+      graphData.links.forEach(l => {
+        const sId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tId = typeof l.target === 'object' ? l.target.id : l.target;
+        if (sId !== node.id && tId !== node.id) return;
+        const otherId = sId === node.id ? tId : sId;
+        const other = graphData.nodes.find(nn => nn.id === otherId);
+        if (!other) return;
+        const t = l.type || '未标注';
+
+        // 主公列出的 9 个关系类别（加上“合作”扩展）
+        if (relationGroups[t]) {
+          relationGroups[t].push({ node: other, edgeType: t, dir: sId === node.id ? 'out' : 'in' });
+        }
+        // 产品/技术 — 从邻居节点 type 收集
+        if (other.type === 'PRODUCT') productRelations.push({ node: other, edgeType: t, dir: sId === node.id ? 'out' : 'in' });
+        if (other.type === 'TECH') techRelations.push({ node: other, edgeType: t, dir: sId === node.id ? 'out' : 'in' });
+      });
+
+      // 2. 渲染：按主公要求顺序
+      const relationOrder = [
+        { key: '竞争', emoji: '🔴', color: '#FF6B6B', desc: '与该节点存在业务/市场竞争关系' },
+        { key: '对比', emoji: '🔵', color: '#4EC9FF', desc: '可作为该节点的对比参照' },
+        { key: '上下游', emoji: '🟣', color: '#C586C0', desc: '价值链上涻下游联动' },
+        { key: '客户', emoji: '🟡', color: '#FFD700', desc: '该节点的客户/采购方' },
+        { key: '供应', emoji: '🟢', color: '#B5CEA8', desc: '该节点的供应商/服务提供方' },
+        { key: '产品', emoji: '⚡', color: '#FFA07A', desc: '相关产品（产品类邻居）', sourceKey: 'productRelations' },
+        { key: '技术', emoji: '🔬', color: '#9CDCFE', desc: '相关技术（技术类邻居）', sourceKey: 'techRelations' },
+        { key: '战略联盟', emoji: '🤝', color: '#C586C0', desc: '战略联盟/合作伙伴' },
+        { key: '合作', emoji: '🤜', color: '#DDA0DD', desc: '一般合作关系' },
+        { key: '投资', emoji: '💰', color: '#FFD700', desc: '投资/控股/子公司关系' }
+      ];
+
+      function renderRelationGroup(groupKey, emoji, color, desc, sourceKey) {
+        const list = sourceKey === 'productRelations' ? productRelations :
+                     sourceKey === 'techRelations' ? techRelations :
+                     relationGroups[groupKey] || [];
+        if (!list || list.length === 0) return '';
+
+        const html = [`<div style="color:${color};font-weight:bold;margin:12px 0 6px;font-size:13px;">${emoji} ${escapeHtml(groupKey)} <span style="color:#888;font-weight:normal;">×${list.length}</span> <span style="color:#666;font-size:11px;font-weight:normal;">${escapeHtml(desc)}</span></div>`];
+
+        // 限制每个类别最多 10 个
+        list.slice(0, 10).forEach(item => {
+          const n = item.node;
+          const dir = item.dir === 'out' ? '→' : '←';
+          const nc = TYPE_COLORS[n.type] || '#888';
+          const edgeTypeLabel = item.edgeType && item.edgeType !== groupKey ? `<span style="color:#666;font-size:11px;"> [${escapeHtml(item.edgeType)}]</span>` : '';
+          html.push(`<div class="detail-relation-item" data-id="${escapeHtml(n.id)}" style="font-size:13px;color:#ccc;line-height:1.8;padding:5px 10px;cursor:pointer;border-left:3px solid ${color};margin:3px 0;border-radius:4px;background:rgba(255,255,255,0.02);" onmouseover="this.style.background='${color}25';this.style.paddingLeft='14px'" onmouseout="this.style.background='rgba(255,255,255,0.02)';this.style.paddingLeft='10px'">
+            <span style="color:${nc}">●</span> ${dir} <b style="color:${color}">${escapeHtml((n.name||n.id).slice(0, 32))}</b><span style="color:#888;font-size:11px;"> [${escapeHtml(n.type || '?')}]</span>${edgeTypeLabel}
+          </div>`);
+        });
+
+        if (list.length > 10) {
+          html.push(`<div style="font-size:11px;color:#888;padding:2px 8px;">...还有 ${list.length - 10} 个</div>`);
+        }
+        return html.join('');
+      }
+
+      let relatedHtml = '<div style="color:#FFD700;font-weight:bold;margin:8px 0 6px;font-size:14px;">📡 关联节点（按关系类别）</div>';
+      relationOrder.forEach(g => {
+        const html = renderRelationGroup(g.key, g.emoji, g.color, g.desc, g.sourceKey);
+        if (html) relatedHtml += html;
+      });
+
+      // 总计信息
+      const totalRelations = Object.values(relationGroups).reduce((s,arr) => s + arr.length, 0) + productRelations.length + techRelations.length;
+      relatedHtml += `<div style="margin-top:10px;padding:6px 10px;background:rgba(78,201,255,0.08);border-radius:3px;font-size:11px;color:#888;">总计: <b style="color:#4EC9FF">${totalRelations}</b> 个关联关系 · 点击任一项可跳转到该节点</div>`;
+
+      // v34: 逻辑内容区（主公反馈“逻辑=公司简介”—— 需重构成三段论真逻辑）
+      // 从 window.__v34LogicContent 读出三段论
+      const lc = window.__v34LogicContent || [];
+      if (lc.length > 0) {
+        const stageColors = { '起因': '#FFD700', '传导': '#4EC9FF', '结果': '#FF6B6B' };
+        const stageIcons = { '起因': '⚡', '传导': '⚡', '结果': '⚡' };
+        relatedHtml += '<div style="color:#C586C0;font-weight:bold;margin:14px 0 6px;font-size:13px;">🧠 逻辑（三段论）</div>';
+        lc.forEach((s, i) => {
+          const c = stageColors[s.stage] || '#888';
+          relatedHtml += `<div style="font-size:12px;line-height:1.7;color:#ccc;margin:4px 0;padding:6px 8px;background:${c}08;border-left:3px solid ${c};border-radius:3px;">
+            <b style="color:${c}">[${escapeHtml(s.stage)}]</b> ${escapeHtml(s.text)}
+          </div>`;
+        });
+      }
+
+      // ====== v44 P0-1 : 关联指标 ======
+      const indicators = node._indicators || [];
+      if (indicators.length > 0) {
+        relatedHtml += '<div style="color:#B5CEA8;font-weight:bold;margin:14px 0 6px;font-size:13px;">📊 关联指标 <span style="color:#888;font-weight:normal;">×' + indicators.length + '</span></div>';
+        const indByType = {};
+        indicators.forEach(ind => {
+          const t = ind.indicator_type || '其他';
+          if (!indByType[t]) indByType[t] = [];
+          indByType[t].push(ind);
+        });
+        Object.entries(indByType).slice(0, 3).forEach(([itype, list]) => {
+          relatedHtml += `<div style="color:#9CDCFE;font-size:11px;margin:4px 0 2px;">▸ ${escapeHtml(itype)}（${list.length}）</div>`;
+          list.slice(0, 4).forEach(ind => {
+            const unit = ind.unit ? `<span style="color:#888;"> ${escapeHtml(ind.unit)}</span>` : '';
+            const isCore = ind.is_core ? '⭐' : '·';
+            relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;">${isCore} ${escapeHtml(ind.indicator_name.slice(0, 40))}${unit}</div>`;
+          });
+        });
+      }
+
+      // ====== v44 P0-2 : 研究框架 ======
+      const frameworks = node._frameworks || [];
+      if (frameworks.length > 0) {
+        relatedHtml += '<div style="color:#DDA0DD;font-weight:bold;margin:14px 0 6px;font-size:13px;">🔬 研究框架 <span style="color:#888;font-weight:normal;">×' + frameworks.length + '</span></div>';
+        const fwByType = {};
+        frameworks.forEach(fw => {
+          const t = fw.framework_type || '其他';
+          if (!fwByType[t]) fwByType[t] = [];
+          fwByType[t].push(fw);
+        });
+        Object.entries(fwByType).slice(0, 4).forEach(([ftype, list]) => {
+          const typeLabel = {core_architecture:'核心架构', logic:'逻辑论证', risk:'风险评估', opportunity:'机遇识别', methodology:'方法论', critical_reflection:'质疑反思'}[ftype] || ftype;
+          relatedHtml += `<div style="color:#DDA0DD;font-size:11px;margin:6px 0 4px;font-weight:bold;">▸ ${escapeHtml(typeLabel)}（${list.length}）</div>`;
+          list.slice(0, 3).forEach(fw => {
+            const conf = fw.confidence ? ` <span style="color:#888;">[${(fw.confidence*100).toFixed(0)}%]</span>` : '';
+            const dim = fw.dimension ? ` <span style="color:#9CDCFE;font-size:10px;">[维度${fw.dimension}]</span>` : '';
+            const ind = fw.apply_industry ? ` <span style="color:#B5CEA8;font-size:10px;">[${escapeHtml(fw.apply_industry)}]</span>` : '';
+            // 名称 + 元数据
+            relatedHtml += `<div style="font-size:13px;color:#FFD700;font-weight:600;line-height:1.5;padding:4px 8px;margin:4px 0 2px;background:rgba(255,215,0,0.06);border-radius:3px;">📐 ${escapeHtml(fw.framework_name)}${conf}${dim}${ind}</div>`;
+            // 应用场景
+            if (fw.apply_scenario) {
+              const scenarioText = typeof fw.apply_scenario === 'string' ? fw.apply_scenario : (Array.isArray(fw.apply_scenario) ? fw.apply_scenario.join('；') : JSON.stringify(fw.apply_scenario));
+              relatedHtml += `<div style="font-size:11px;color:#aab;line-height:1.6;padding:2px 16px;margin:1px 0;"><b style="color:#888;">场景：</b>${escapeHtml(scenarioText.slice(0, 200))}${scenarioText.length > 200 ? '...' : ''}</div>`;
+            }
+            // content（含完整描述/核心维度/步骤）
+            if (fw.content) {
+              let contentText = fw.content;
+              // 如果 content 太长，提取关键部分
+              if (contentText.length > 600) {
+                contentText = contentText.slice(0, 600) + '...';
+              }
+              relatedHtml += `<div style="font-size:11px;color:#ccc;line-height:1.7;padding:4px 16px 6px;margin:2px 0 4px;background:rgba(255,255,255,0.02);border-left:2px solid #DDA0DD;border-radius:3px;">${escapeHtml(contentText).replace(/\n/g, '<br>')}</div>`;
+            }
+            // steps（如果存在）
+            if (fw.steps && Array.isArray(fw.steps) && fw.steps.length > 0) {
+              relatedHtml += `<div style="font-size:10px;color:#888;padding:2px 16px;margin:1px 0;"><b>步骤：</b>${fw.steps.map((s, i) => `${i+1}.${escapeHtml(typeof s === 'string' ? s : (s.name || JSON.stringify(s)).slice(0, 30))}`).join('；').slice(0, 200)}</div>`;
+            }
+          });
+        });
+      }
+
+      // ====== v44 P0-3 : 关联实体（含 description） ======
+      const relatedEnts = node._relatedEntities || [];
+      if (relatedEnts.length > 0) {
+        const relByType = {};
+        relatedEnts.forEach(r => {
+          const t = r.relation_type || '相关';
+          if (!relByType[t]) relByType[t] = [];
+          relByType[t].push(r);
+        });
+        relatedHtml += '<div style="color:#FFA07A;font-weight:bold;margin:14px 0 6px;font-size:13px;">🔗 关联实体（含业务说明） <span style="color:#888;font-weight:normal;">×' + relatedEnts.length + '</span></div>';
+        Object.entries(relByType).slice(0, 4).forEach(([rtype, list]) => {
+          const dir = list[0] && list[0].dir === 'out' ? '→' : '←';
+          relatedHtml += `<div style="color:#FFA07A;font-size:11px;margin:4px 0 2px;">▸ ${dir} ${escapeHtml(rtype)}（${list.length}）</div>`;
+          list.slice(0, 2).forEach(r => {
+            const otherNode = graphData.nodes.find(nn => nn.id === r.other_id);
+            const otherName = otherNode ? (otherNode.name || otherNode.id) : r.other_id;
+            const desc = r.description || '';
+            relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;border-left:2px solid #FFA07A;background:rgba(255,160,122,0.04);"><b style="color:#FFA07A">${escapeHtml(otherName.slice(0, 20))}</b>: ${escapeHtml(desc.slice(0, 80))}${desc.length > 80 ? '...' : ''}</div>`;
+          });
+        });
+      }
+
+      document.getElementById('detailRelated').innerHTML = relatedHtml;
+      
+      // 方向 M: 详情卡关联节点快速跳转 - event delegation（首次绑定）
+      const detailRelated = document.getElementById('detailRelated');
+      if (detailRelated && !detailRelated.dataset.bound) {
+        detailRelated.dataset.bound = '1';
+        detailRelated.style.cursor = 'pointer';
+        detailRelated.addEventListener('click', (e) => {
+          const li = e.target.closest('li[data-node-id]');
+          if (!li || !window.Graph) return;
+          const targetId = li.dataset.nodeId;
+          const targetNode = (window.graphData?.nodes || []).find(n => n.id === targetId);
+          if (targetNode && targetNode.x !== undefined) {
+            window.Graph.centerAt(targetNode.x, targetNode.y, 600);
+            if (window.Graph.zoom) window.Graph.zoom(2.5, 600);
+            window.__showDetailCard(targetNode);
+            console.log('[方向 M] 关联节点跳转:', targetNode.name);
+          }
+        });
+        console.log('[方向 M] 详情卡关联跳转 event delegation 已绑定');
+      }
+      
+// v33: 来源（填充真实可用的信息）— 报告来源：底 + 时间 + 社区 + 邻居样本报告
+      // 实测：graphData.nodes 上 source_report_id 全为 null，但 industry/publishDate/_communityId 可用
+      const sourceHtml = [];
+      sourceHtml.push('<div style="color:#FFD700;font-weight:bold;margin:8px 0 4px;">📄 来源信息</div>');
+
+      // 1. 所属行业（代表性来源）
+      if (node.industry) {
+        sourceHtml.push(`<div style="font-size:12px;color:#ccc;line-height:1.6;">所属行业: <b style="color:#9CDCFE">${escapeHtml(node.industry)}</b></div>`);
+      }
+      // 2. 子行业（更细粒度）
+      if (node.subIndustry && node.subIndustry !== '未分类') {
+        sourceHtml.push(`<div style="font-size:12px;color:#ccc;line-height:1.6;">子行业: <b>${escapeHtml(node.subIndustry)}</b></div>`);
+      }
+      // 3. 发布时间
+      if (node.publishDate) {
+        sourceHtml.push(`<div style="font-size:12px;color:#ccc;line-height:1.6;">发布时间: <b style="color:#B5CEA8">${escapeHtml(node.publishDate)}</b></div>`);
+      }
+      // 4. 社区（从哪里提取的限定）
+      const cid = node._communityId !== undefined ? node._communityId : node.communityId;
+      if (cid !== undefined && cid !== null && cid !== '未分配') {
+        sourceHtml.push(`<div style="font-size:12px;color:#ccc;line-height:1.6;">社区编号: <b style="color:#C586C0">#${cid}</b> <span style="color:#888">(关联提取源)</span></div>`);
+      }
+      // 5. 邻居的行业多样性（当作验证该节点所属领域的互补指标）
+      const neighborInds = new Set();
+      const seenV33 = new Set();
+      graphData.links.forEach(l => {
+        const sId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tId = typeof l.target === 'object' ? l.target.id : l.target;
+        let otherId = null;
+        if (sId === node.id && tId !== node.id) otherId = tId;
+        else if (tId === node.id && sId !== node.id) otherId = sId;
+        if (otherId && !seenV33.has(otherId)) { seenV33.add(otherId); }
+      });
+      const neighborNodes = Array.from(seenV33).map(id => graphData.nodes.find(nn => nn.id === id)).filter(Boolean);
+      neighborNodes.forEach(n => { if (n.industry) neighborInds.add(n.industry); });
+      if (neighborInds.size > 0) {
+        const sample = Array.from(neighborInds).slice(0, 4).join('、');
+        sourceHtml.push(`<div style="font-size:12px;color:#ccc;line-height:1.6;">跨行业样本: <span style="color:#888">${escapeHtml(sample)}${neighborInds.size > 4 ? ` 等 ${neighborInds.size} 个` : ''}</span></div>`);
+      }
+      // 6. 总被引用次数（入度 + 出度）
+      const indeg = seenV33.size;
+      const sourceHtmlExtra = [];
+      sourceHtmlExtra.push(`<div style="font-size:12px;color:#ccc;line-height:1.6;">关联边数: <b style="color:#FFA07A">${indeg}</b> <span style="color:#888">(入+出 = 跨领域影响)</span></div>`);
+
+      // 合并 + 输出
+      document.getElementById('detailSources').innerHTML = (sourceHtml.concat(sourceHtmlExtra)).join('') || '<div style="color:#888">无引用来源</div>';
+
+      // 显示卡片
+      card.classList.add('open');
+      console.log('[方向 5] 详情卡已显示:', node.name || node.id);
+
+      // v35: 关系项点击跳转事件 delegation（主公反馈“点击相关信息无法实现跳转”）
+      // 每个 detail.relation-item class 上已设置 cursor:pointer；这里仅负责 event delegation
+      const detailRelatedEl = document.getElementById('detailRelated');
+      if (detailRelatedEl && !detailRelatedEl.__v35Bound) {
+        detailRelatedEl.__v35Bound = true;
+        detailRelatedEl.addEventListener('click', (e) => {
+          const item = e.target.closest('.detail-relation-item');
+          if (!item) return;
+          const targetId = item.dataset.id;
+          if (!targetId || !window.Graph || !window.graphData) return;
+          const targetNode = window.graphData.nodes.find(n => n.id === targetId);
+          if (!targetNode || targetNode.x === undefined) {
+            console.warn('[v35] 目标节点未定位:', targetId);
+            return;
+          }
+          try {
+            window.Graph.centerAt(targetNode.x, targetNode.y, 800);
+            if (window.Graph.zoom) window.Graph.zoom(2.5, 800);
+            window.__showDetailCard(targetNode);
+            console.log('[v35] 关系项跳转:', targetNode.name || targetNode.id);
+          } catch(err) {
+            console.warn('[v35] 跳转失败:', err.message);
+          }
+        });
+        console.log('[v35] 详情卡关联跳转 event delegation 已绑定');
+      }
+    };
+    
+    // 关闭详情卡
+    document.getElementById('detailClose')?.addEventListener('click', () => {
+      document.getElementById('detailCard')?.classList.remove('open');
+    });
+    
+    // 方向 5: 右键菜单新增"打开详情卡"动作
+    // 已在 setupContextMenu 中通过 'detail' action 处理
+    
+    // 方向 5: 双击节点 = 打开详情卡（兼容写法）
+    try {
+      if (typeof Graph.onNodeDoubleClick === 'function') {
+        Graph.onNodeDoubleClick(node => {
+          if (node) {
+            window.__dataFunnel.level = 'L4';
+            window.__dataFunnel.currentNode = node.id;
+            window.__applyDataFunnel();
+            window.__showDetailCard(node);
+          }
+        });
+      } else {
+        // force-graph 使用 onNodeClick + dblclick 事件
+        console.log('[方向 5] onNodeDoubleClick 不可用，使用兼容写法（双击判断 250ms）');
+        let lastClickTime = 0;
+        let lastClickId = null;
+        if (typeof Graph.onNodeClick === 'function') {
+          Graph.onNodeClick(node => {
+            const now = Date.now();
+            if (node && lastClickId === node.id && (now - lastClickTime) < 300) {
+              // 双击
+              window.__dataFunnel.level = 'L4';
+              window.__dataFunnel.currentNode = node.id;
+              window.__applyDataFunnel();
+              window.__showDetailCard(node);
+              lastClickId = null;
+            } else {
+              lastClickId = node?.id;
+              lastClickTime = now;
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[方向 5] 双击事件绑定失败:', e.message);
+    }
+    
+    // ===========================
+    // 方向 6: 关系类型图例（右侧）
+    // ===========================
+    function buildEdgeTypeLegend() {
+      // 统计每种关系类型的数量
+      const typeCount = {};
+      graphData.links.forEach(l => {
+        const t = l.type || '相关';
+        typeCount[t] = (typeCount[t] || 0) + 1;
+      });
+      const sorted = Object.entries(typeCount).sort((a, b) => b[1] - a[1]);
+      
+      // v53: 开局默认只勾选【对比、供应、上下游】3 个关系，其他全部不选
+      // 全局选中状态：window.__edgeTypeFilter = Set
+      if (!window.__edgeTypeFilter) {
+        window.__edgeTypeFilter = new Set();
+        sorted.forEach(([type, count]) => {
+          if (['对比', '供应', '上下游'].includes(type)) {
+            window.__edgeTypeFilter.add(type);
+          }
+        });
+      }
+      
+      const html = ['<div style="margin-top:12px;padding-top:8px;border-top:1px solid #333"><h4 style="color:#FFD700;margin:0 0 8px 0;font-size:12px">🔗 关系类型（多选）</h4>'];
+      // 全选/全不选按钮
+      html.push('<div style="margin-bottom:6px;display:flex;gap:4px"><button id="edgeAllOn" style="flex:1;font-size:10px;padding:2px 4px;background:#222;color:#4ec9ff;border:1px solid #4ec9ff;border-radius:3px;cursor:pointer">全选</button><button id="edgeAllOff" style="flex:1;font-size:10px;padding:2px 4px;background:#222;color:#FFA07A;border:1px solid #FFA07A;border-radius:3px;cursor:pointer">全不选</button></div>');
+      sorted.forEach(([type, count]) => {
+        const style = EDGE_STYLES[type] || EDGE_DEFAULT;
+        const arrow = style.arrow === 'full' ? '→' : style.arrow === 'arrow' ? '→' : '·';
+        const isDashed = style.dash ? 'dashed' : 'solid';
+        const isChecked = window.__edgeTypeFilter.has(type);
+        html.push(`<label class="edge-legend-item" data-type="${type}" style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;color:#ccc;opacity:${isChecked ? 1 : 0.4}">
+          <input type="checkbox" class="edge-type-cb" data-type="${type}" ${isChecked ? 'checked' : ''} style="cursor:pointer;accent-color:#4ec9ff">
+          <span style="display:inline-block;width:24px;height:0;border-top:2px ${isDashed} ${style.color}">${arrow}</span>
+          <span style="flex:1">${type}</span>
+          <span style="color:#888;font-size:11px;">${count}</span>
+        </label>`);
+      });
+      html.push('</div>');
+      
+      // 插入到 legendContent 末尾
+      const legendContent = document.getElementById('legendContent');
+      if (legendContent) {
+        let edgeLegend = legendContent.querySelector('.edge-legend-list');
+        if (edgeLegend) {
+          edgeLegend.outerHTML = html.join('');
+        } else {
+          legendContent.insertAdjacentHTML('beforeend', '<div class="edge-legend-list">' + html.join('') + '</div>');
+        }
+        
+        // v50: 应用边类型过滤（多选）
+        function applyEdgeTypeFilter() {
+          if (!window.__edgeTypeFilter) return;
+          graphData.links.forEach(l => {
+            const visible = window.__edgeTypeFilter.has(l.type);
+            l._edgeHidden = !visible;
+            l._dimmed = !visible;
+          });
+          // 节点 dim：所有可见边都不连接的节点 → dim
+          const visibleNodes = new Set();
+          graphData.links.forEach(l => {
+            if (!l._edgeHidden) {
+              const s = typeof l.source === 'object' ? l.source.id : l.source;
+              const t = typeof l.target === 'object' ? l.target.id : l.target;
+              visibleNodes.add(s);
+              visibleNodes.add(t);
+            }
+          });
+          graphData.nodes.forEach(n => {
+            n._dimmed = !visibleNodes.has(n.id);
+          });
+          try { (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null); } catch(e) {}
+        }
+        window.__applyEdgeTypeFilter = applyEdgeTypeFilter;
+        
+        // 绑定 checkbox 变化事件
+        document.querySelectorAll('.edge-type-cb').forEach(cb => {
+          cb.addEventListener('change', () => {
+            const typeName = cb.dataset.type;
+            if (cb.checked) window.__edgeTypeFilter.add(typeName);
+            else window.__edgeTypeFilter.delete(typeName);
+            // 更新 label 透明度
+            const label = cb.closest('.edge-legend-item');
+            if (label) label.style.opacity = cb.checked ? 1 : 0.4;
+            applyEdgeTypeFilter();
+            console.log('[v50] 边类型过滤:', typeName, cb.checked);
+          });
+        });
+        
+        // 全选按钮
+        document.getElementById('edgeAllOn')?.addEventListener('click', () => {
+          document.querySelectorAll('.edge-type-cb').forEach(cb => {
+            cb.checked = true;
+            window.__edgeTypeFilter.add(cb.dataset.type);
+            const label = cb.closest('.edge-legend-item');
+            if (label) label.style.opacity = 1;
+          });
+          applyEdgeTypeFilter();
+          console.log('[v50] 边类型全选');
+        });
+        
+        // 全不选按钮
+        document.getElementById('edgeAllOff')?.addEventListener('click', () => {
+          document.querySelectorAll('.edge-type-cb').forEach(cb => {
+            cb.checked = false;
+            window.__edgeTypeFilter.delete(cb.dataset.type);
+            const label = cb.closest('.edge-legend-item');
+            if (label) label.style.opacity = 0.4;
+          });
+          applyEdgeTypeFilter();
+          console.log('[v50] 边类型全不选');
+        });
+        
+        // 初始化时应用一次（按当前 filter）
+        applyEdgeTypeFilter();
+      }
+    }
+    
+    // 方向 6: 延迟构建关系图例（等数据稳定后）
+    setTimeout(buildEdgeTypeLegend, 2000);
+    
+    // 方向 A: 标记需要弧形聚合的边
+    // 触发条件1: 同节点对有 ≥2 条同类型边 → 弧形
+    // 触发条件2: 跨多类型同节点对 → 强制弯曲（视觉上区分不同关系）
+    setTimeout(() => {
+      const pairCount = {};
+      graphData.links.forEach(l => {
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        const key = [s, t].sort().join('|');
+        if (!pairCount[key]) pairCount[key] = 0;
+        pairCount[key]++;
+      });
+      graphData.links.forEach(l => {
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        const key = [s, t].sort().join('|');
+        // ≥2 条边的节点对 → 弧形聚合（更宽容的阈值）
+        l._isAggregated = pairCount[key] >= 2;
+        // 计算弧形偏移量（每条边的弧度不同）
+        const samePairEdges = graphData.links.filter(x => {
+          const xs = typeof x.source === 'object' ? x.source.id : x.source;
+          const xt = typeof x.target === 'object' ? x.target.id : x.target;
+          return [xs, xt].sort().join('|') === key;
+        });
+        const idx = samePairEdges.indexOf(l);
+        l._curveOffset = (idx - (samePairEdges.length - 1) / 2) * 0.15;
+      });
+      const aggregatedCount = graphData.links.filter(l => l._isAggregated).length;
+      console.log('[方向 A] 弧形聚合边数:', aggregatedCount, '/', graphData.links.length);
+      try { (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null); } catch(e) {}
+    }, 3500);
+    console.log('[方向 5+6] 详情卡 + 关系类型图例已初始化');
+    
+    // ===========================
+    // v35: 主公要求取消全局巡游 + 删除重新巡游选项
+    // 原因：巡游会造成点击行业后看不到总体（只看到走来走去的热点）
+    // 为安全，仍保留一些调用代码不产生 NULL 错误
+    // ===========================
+    window.__startAnimationGuide = function() {
+      console.log('[v35] 动画巡游已停用（主公要求）');
+      return;
+    };
+    let __animationGuided = true;  // v35: 默认为 true，不再启动
+    // 5 秒后自动启动动画引导（仅一次）已删除 — 不再自动启动
+    // 重新巡游按钮已删除 — 不再提供手动启动入口
+    console.log('[v35] 巡游动画已完全停用，点击节点直接总览');
+    
+    // ===========================
+    // 方向 D: 行业下拉填充 + Breadcrumb 交互
+    // ===========================
+    window.__populateIndustrySwitcher = function() {
+      const industries = new Set();
+      graphData.nodes.forEach(n => {
+        if (n.industry && n.industry !== '未分类') industries.add(n.industry);
+      });
+      const sorted = [...industries].sort();
+      const select = document.getElementById('industrySwitcher');
+      if (!select) return;
+      sorted.forEach(ind => {
+        const opt = document.createElement('option');
+        opt.value = ind;
+        opt.textContent = ind;
+        select.appendChild(opt);
+      });
+      console.log('[方向 D] 行业下拉填充:', sorted.length, '个行业');
+      
+      // 行业切换事件（v28 增强：切换后立即渲染 aggPanel）
+      select.addEventListener('change', () => {
+        const ind = select.value;
+        if (!ind) return;
+        const funnel = window.__dataFunnel;
+        funnel.level = 'L1';
+        funnel.currentIndustry = ind;
+        window.__applyDataFunnel();
+        // 更新 breadcrumb
+        const bcInd = document.getElementById('bcIndustry');
+        if (bcInd) {
+          bcInd.textContent = ind;
+          bcInd.style.color = '#FFD700';
+        }
+        // v28: 立即渲染 aggPanel 联动
+        if (typeof window.__renderAggPanel === 'function') {
+          window.__renderAggPanel();
+        }
+        // v28: 同时聚焦行业（让图也切到该行业）
+        if (typeof window.focusIndustry === 'function') {
+          window.focusIndustry(ind);
+        }
+        console.log('[方向 D v28] 切换行业:', ind);
+      });
+    };
+    setTimeout(window.__populateIndustrySwitcher, 2500);
+    
+    // Breadcrumb 点击事件（v26 修复：立即刷新 aggPanel + 联动 focusIndustry）
+    document.querySelectorAll('.bc-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const level = el.dataset.level;
+        const funnel = window.__dataFunnel;
+        funnel.level = level;
+        if (level === 'L0') {
+          funnel.currentIndustry = null;
+          funnel.currentNode = null;
+        } else if (level === 'L1') {
+          funnel.currentNode = null;
+        }
+        window.__applyDataFunnel();
+        // v26: 立即刷新 aggPanel（不等 setInterval 1.5s）
+        if (typeof window.__renderAggPanel === 'function') {
+          window.__renderAggPanel();
+        }
+        // v26: L1 行业层级联动 focusIndustry（清空聚合）
+        if (level === 'L0' && typeof window.focusIndustry === 'function') {
+          window.focusIndustry(null);
+        }
+        console.log('[方向 D v26] Breadcrumb 跳转到:', level);
+      });
+    });
+    
+    // ===========================
+    // 方向 E: Mini-map（右下角缩略图）
+    // ===========================
+    const miniMap = document.createElement('canvas');
+    miniMap.id = 'miniMap';
+    miniMap.width = 200;
+    miniMap.height = 150;
+    miniMap.style.cssText = 'position:fixed;bottom:320px;left:20px;border:2px solid #4ec9ff;border-radius:4px;background:rgba(0,0,0,0.7);z-index:90;cursor:pointer;opacity:0.85;';
+    document.body.appendChild(miniMap);
+
+    // 方向 K: Mini-map 点击跳转（点击 mini-map → graph centerAt + zoom）
+    miniMap.addEventListener('click', (e) => {
+      const rect = miniMap.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) / rect.width;
+      const my = (e.clientY - rect.top) / rect.height;
+      if (!graphData?.nodes?.length) return;
+      const xs = graphData.nodes.map(n => n.x || 0);
+      const ys = graphData.nodes.map(n => n.y || 0);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const rangeX = Math.max(maxX - minX, 1);
+      const rangeY = Math.max(maxY - minY, 1);
+      const padding = 10;
+      const worldX = minX + ((mx * miniMap.width - padding) / (miniMap.width - padding * 2)) * rangeX;
+      const worldY = minY + ((my * miniMap.height - padding) / (miniMap.height - padding * 2)) * rangeY;
+      if (window.Graph?.centerAt) {
+        window.Graph.centerAt(worldX, worldY, 600);
+        if (window.Graph.zoom) window.Graph.zoom(2, 600);
+      }
+      console.log('[方向 K] Mini-map 点击跳转:', { worldX, worldY });
+    });
+    miniMap.title = '点击跳转';
+    
+    window.__renderMiniMap = function() {
+      const ctx = miniMap.getContext('2d');
+      ctx.clearRect(0, 0, miniMap.width, miniMap.height);
+      // 背景
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(0, 0, miniMap.width, miniMap.height);
+      
+      // 计算 bbox
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      graphData.nodes.forEach(n => {
+        if (n.x !== undefined) {
+          minX = Math.min(minX, n.x);
+          maxX = Math.max(maxX, n.x);
+          minY = Math.min(minY, n.y);
+          maxY = Math.max(maxY, n.y);
+        }
+      });
+      if (minX === Infinity) return;
+      const rangeX = maxX - minX || 1;
+      const rangeY = maxY - minY || 1;
+      const padding = 10;
+      
+      // 画节点（缩略点）
+      graphData.nodes.forEach(n => {
+        if (n.x === undefined || n._dimmed) return;
+        const px = ((n.x - minX) / rangeX) * (miniMap.width - padding * 2) + padding;
+        const py = ((n.y - minY) / rangeY) * (miniMap.height - padding * 2) + padding;
+        const typeColor = TYPE_COLORS[n.type] || '#888';
+        ctx.fillStyle = typeColor;
+        ctx.beginPath();
+        ctx.arc(px, py, n.importance === 3 ? 3 : 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      
+      // 画视口框
+      try {
+        const cam = Graph.cameraPosition();
+        const dist = cam.distance || 500;
+        const viewportW = dist * 1.5;
+        const viewportH = dist * 0.9;
+        const cx = ((cam.x - minX) / rangeX) * (miniMap.width - padding * 2) + padding;
+        const cy = ((cam.y - minY) / rangeY) * (miniMap.height - padding * 2) + padding;
+        const vw = Math.min(viewportW / rangeX * miniMap.width, miniMap.width - padding * 2);
+        const vh = Math.min(viewportH / rangeY * miniMap.height, miniMap.height - padding * 2);
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(cx - vw/2, cy - vh/2, vw, vh);
+      } catch (e) {}
+    };
+    
+    // 每 2 秒刷新 mini-map
+    setInterval(() => {
+      if (typeof window.__renderMiniMap === 'function') window.__renderMiniMap();
+    }, 2000);
+    console.log('[方向 E] Mini-map 已启用');
+    
+    // ===========================
+    // 方向 F: 聚合面板（左上角统计）
+    // ===========================
+    const aggPanel = document.createElement('div');
+    aggPanel.id = 'aggPanel';
+    aggPanel.style.cssText = 'position:fixed;top:80px;left:20px;background:rgba(10,10,20,0.9);border:1px solid #4ec9ff;border-radius:6px;padding:10px;font-size:12px;color:#ccc;z-index:90;min-width:180px;max-height:420px;overflow-y:auto';
+    aggPanel.innerHTML = '<h4 style="color:#FFD700;margin:0 0 6px 0">📊 聚合统计</h4><div id="aggContent">加载中...</div>';
+    document.body.appendChild(aggPanel);
+    
+    window.__renderAggPanel = function() {
+      const funnel = window.__dataFunnel;
+      let nodes = graphData.nodes;
+      // 按当前层级过滤
+      if (funnel.level === 'L0') {
+        nodes = nodes.filter(n => n.industry && (n.type === 'INDUSTRY' || n.importance >= 2));
+      } else if (funnel.level === 'L1' && funnel.currentIndustry) {
+        nodes = nodes.filter(n => n.industry === funnel.currentIndustry);
+      } else if (funnel.level === 'L2' && funnel.currentType) {
+        nodes = nodes.filter(n => n.type === funnel.currentType);
+      } else if (funnel.level === 'L3' && funnel.currentNode) {
+        const neighborIds = new Set([funnel.currentNode]);
+        graphData.links.forEach(l => {
+          const s = typeof l.source === 'object' ? l.source.id : l.source;
+          const t = typeof l.target === 'object' ? l.target.id : l.target;
+          if (s === funnel.currentNode) neighborIds.add(t);
+          if (t === funnel.currentNode) neighborIds.add(s);
+        });
+        nodes = nodes.filter(n => neighborIds.has(n.id));
+      }
+      
+      // 按 type 分组
+      const byType = {};
+      nodes.forEach(n => {
+        const t = n.typeLabel || n.type || 'UNKNOWN';
+        byType[t] = (byType[t] || 0) + 1;
+      });
+      
+      // 按行业 Top 5
+      const byIndustry = {};
+      nodes.forEach(n => {
+        if (n.industry) byIndustry[n.industry] = (byIndustry[n.industry] || 0) + 1;
+      });
+      const topInd = Object.entries(byIndustry).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      
+      // 按重要性
+      const byImportance = [0, 0, 0, 0];
+      nodes.forEach(n => {
+        byImportance[n.importance || 0]++;
+      });
+      
+      document.getElementById('aggContent').innerHTML = `
+        <div style="margin-bottom:6px"><span style="color:#4ec9ff">层级:</span> <span style="color:#FFD700">${funnel.level}</span> · <span style="color:#fff">${nodes.length}</span> 节点</div>
+        <div style="margin-bottom:4px;color:#888">按类型:</div>
+        ${Object.entries(byType).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([t,c]) => 
+          `<div style="padding:1px 0">${t}: <span style="color:#FFD700">${c}</span></div>`
+        ).join('')}
+        <div style="margin-top:6px;margin-bottom:4px;color:#888">重要性:</div>
+        <div style="padding:1px 0">⭐⭐⭐ 核心: <span style="color:#FF3232">${byImportance[3]}</span></div>
+        <div style="padding:1px 0">⭐⭐ 重要: <span style="color:#FFD700">${byImportance[2]}</span></div>
+        <div style="padding:1px 0">⭐ 普通: <span style="color:#fff">${byImportance[1]}</span></div>
+      `;
+    };
+    setInterval(() => {
+      if (typeof window.__renderAggPanel === 'function') window.__renderAggPanel();
+    }, 1500);
+    console.log('[方向 F] 聚合面板已启用');
+    
+    // ===========================
+    // 方向 G: 节点 Halo（悬停光晕）
+    // ===========================
+    Graph.nodeColor(node => {
+      // 方向 G: hover 时高亮
+      if (window.__hoverNode && window.__hoverNode.id === node.id) {
+        return '#FFD700';  // 金色高亮
+      }
+      if (node._dimmed) return 'rgba(100,100,100,0.2)';
+      return node.color;
+    // 方向 R: importance 视觉编码（v15 数据补全后）—— 节点大小按 importance + degree 计算
+    }).nodeVal(node => {
+      if (window.__hoverNode && window.__hoverNode.id === node.id) {
+        return 12;  // hover 时固定放大
+      }
+      if (node._dimmed) return 0.5;
+      const importance = node.importance || 0;
+      const degree = node.degree || 0;
+      // importance 3=核心枢纽(8-12)、2=重要(5-7)、1=普通(3-4)、0=孤立(1-2)
+      const base = importance === 3 ? 10 : importance === 2 ? 6 : importance === 1 ? 3.5 : 1.5;
+      // 在基础上叠加 degree 缩放（最大 +3）
+      const degreeBonus = Math.min(degree / 30, 3);
+      return base + degreeBonus;
+    });
+    Graph.onNodeHover(node => {
+      window.__hoverNode = node;
+      try { (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null); } catch(e) {}
+      // v23 修 Bug A：canvas 是按需查询，不是定 const，因为 canvas 可能未挂载
+      try {
+        const __c = document.querySelector('#graphContainer canvas');
+        if (__c) __c.style.cursor = node ? 'pointer' : 'default';
+      } catch (e) { /* canvas not ready, silently skip */ }
+    });
+    console.log('[方向 G] 节点悬停光晕已启用');
+    
+    // ===========================
+    // 方向 H: 导出/截图功能
+    // ===========================
+    const exportBtn = document.createElement('button');
+    exportBtn.id = 'btnExport';
+    exportBtn.className = 'btn';
+    exportBtn.textContent = '📷 导出PNG';
+    exportBtn.style.cssText = 'position:fixed;top:55px;left:50%;transform:translateX(-238px);background:#FFD700;color:#000;border:none;border-radius:4px;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;z-index:90;box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+    exportBtn.addEventListener('click', () => {
+      try {
+        // 直接截 canvas
+        const canvas = document.querySelector('#graphContainer canvas');
+        if (canvas) {
+          const link = document.createElement('a');
+          link.download = `kg_viz_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'_')}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+          console.log('[方向 H] 已导出 PNG:', link.download);
+        }
+      } catch (e) {
+        console.error('[方向 H] 导出失败:', e.message);
+      }
+    });
+    document.body.appendChild(exportBtn);
+    console.log('[方向 H] 导出 PNG 按钮已添加');
+  }
+
+  // ===========================
+  // P2.1: 搜索功能
+  // ===========================
+  let __searchHighlighted = null;
+  function setupSearch() {
+    const input = document.getElementById('searchInput');
+    const resultsDiv = document.getElementById('searchResults');
+    if (!input || !resultsDiv) return;
+    
+    input.addEventListener('input', (e) => {
+      const query = e.target.value.trim().toLowerCase();
+      if (!query) {
+        resultsDiv.innerHTML = '';
+        resultsDiv.style.display = 'none';
+        if (__searchHighlighted) {
+          __searchHighlighted.forEach(n => n._searched = false);
+          __searchHighlighted = null;
+        }
+        return;
+      }
+      
+      const matches = graphData.nodes.filter(n => {
+        return (n.name || '').toLowerCase().includes(query) ||
+               (n.type || '').toLowerCase().includes(query) ||
+               (n.industry || '').toLowerCase().includes(query);
+      }).slice(0, 20);
+      
+      if (__searchHighlighted) {
+        __searchHighlighted.forEach(n => n._searched = false);
+      }
+      matches.forEach(n => n._searched = true);
+      __searchHighlighted = matches;
+      
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = matches.length === 0 
+        ? '<div class="search-empty">无匹配节点</div>'
+        : matches.map(n => {
+          const typeColor = TYPE_COLORS[n.type] || '#888';
+          return `<div class="search-item" data-id="${n.id}">
+            <span style="color:${typeColor}">●</span>
+            <span class="search-name">${escapeHtml(n.name || n.id)}</span>
+            <span class="search-meta">${escapeHtml(n.typeLabel || n.type || '')} · ${escapeHtml(n.industry || '')}</span>
+          </div>`;
+        }).join('');
+      
+      resultsDiv.querySelectorAll('.search-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const nodeId = el.dataset.id;
+          const node = graphData.nodes.find(n => n.id === nodeId);
+          if (node && Graph) {
+            // 方向 7: 智能层级展开 - 根据搜索结果类型自动展开到合适层级
+            // L0 → L1 → L2 → L3 → L4
+            const funnel = window.__dataFunnel;
+            if (funnel.level === 'L0' && node.industry) {
+              funnel.level = 'L1';
+              funnel.currentIndustry = node.industry;
+              window.__applyDataFunnel();
+            } else if (funnel.level === 'L1') {
+              funnel.level = 'L2';
+              funnel.currentType = node.type;
+              window.__applyDataFunnel();
+            }
+            // L2/L3/L4 直接跳到节点详情
+            funnel.level = 'L4';
+            funnel.currentNode = node.id;
+            window.__applyDataFunnel();
+            
+            // 等动画完成后定位
+            setTimeout(() => {
+              if (node.x !== undefined) {
+                Graph.centerAt(node.x, node.y, 800);
+                Graph.zoom(3, 800);
+              }
+              // 方向 5: 自动弹出详情卡
+              if (typeof window.__showDetailCard === 'function') {
+                window.__showDetailCard(node);
+              }
+            }, 500);
+            
+            input.value = '';
+            resultsDiv.style.display = 'none';
+            if (__searchHighlighted) {
+              __searchHighlighted.forEach(n => n._searched = false);
+              __searchHighlighted = null;
+            }
+            console.log('[方向 7] 搜索智能展开:', node.name, '→ L4 详情');
+          }
+        });
+      });
+    });
+    
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        input.value = '';
+        resultsDiv.style.display = 'none';
+        if (__searchHighlighted) {
+          __searchHighlighted.forEach(n => n._searched = false);
+          __searchHighlighted = null;
+        }
+      }
+    });
+  }
+
+  // ===========================
+  // P2.2: hover tooltip
+  // ===========================
+  function setupTooltip() {
+    const tooltip = document.getElementById('nodeTooltip');
+    if (!tooltip || !Graph) return;
+    
+    Graph.onNodeHover(node => {
+      if (node) {
+        const typeColor = TYPE_COLORS[node.type] || '#888';
+        tooltip.innerHTML = `
+          <div class="tt-name" style="color:${typeColor}">${escapeHtml(node.name || node.id)}</div>
+          <div class="tt-row">类型: ${escapeHtml(node.typeLabel || node.type || 'N/A')}</div>
+          <div class="tt-row">行业: ${escapeHtml(node.industry || 'N/A')}</div>
+          <div class="tt-row">度数: ${node.degree || 0}</div>
+        `;
+        tooltip.style.display = 'block';
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (tooltip.style.display === 'block') {
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top = (e.clientY + 12) + 'px';
+      }
+    });
+  }
+
+  // ===========================
+  // P2.3: 右键菜单
+  // ===========================
+  let __contextNode = null;
+  function setupContextMenu() {
+    const menu = document.getElementById('contextMenu');
+    if (!menu || !Graph) return;
+    
+    Graph.onNodeRightClick(node => {
+      if (!node) return;
+      __contextNode = node;
+      menu.style.display = 'block';
+      menu.style.left = event.clientX + 'px';
+      menu.style.top = event.clientY + 'px';
+    });
+    
+    document.addEventListener('click', () => {
+      menu.style.display = 'none';
+    });
+    
+    menu.addEventListener('click', (e) => {
+      const action = e.target.dataset.action;
+      if (!action || !__contextNode) return;
+      
+      if (action === 'focus') {
+        Graph.centerAt(__contextNode.x, __contextNode.y, 800);
+        Graph.zoom(3, 800);
+      } else if (action === 'hide') {
+        __contextNode._hidden = true;
+        (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null);
+      } else if (action === 'hideNeighbors') {
+        const neighborIds = new Set([__contextNode.id]);
+        graphData.links.forEach(l => {
+          const src = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+          if (src === __contextNode.id) neighborIds.add(tgt);
+          if (tgt === __contextNode.id) neighborIds.add(src);
+        });
+        graphData.nodes.forEach(n => {
+          if (neighborIds.has(n.id)) n._hidden = true;
+        });
+        (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null);
+      } else if (action === 'showOnly') {
+        const neighborIds = new Set([__contextNode.id]);
+        graphData.links.forEach(l => {
+          const src = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+          if (src === __contextNode.id) neighborIds.add(tgt);
+          if (tgt === __contextNode.id) neighborIds.add(src);
+        });
+        graphData.nodes.forEach(n => {
+          n._hidden = !neighborIds.has(n.id);
+        });
+        (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null);
+      } else if (action === 'copy') {
+        navigator.clipboard.writeText(__contextNode.name || __contextNode.id);
+      }
+      
+      menu.style.display = 'none';
+    });
+  }
+
+  // ===========================
+  // P3.4: hover 高亮 1-hop 邻居
+  // ===========================
+  let __hoveredNode = null;
+  let __hoverNeighbors = new Set();
+  function setupNeighborHighlight() {
+    if (!Graph) return;
+    
+    Graph.onNodeHover(node => {
+      __hoveredNode = node;
+      
+      __hoverNeighbors.clear();
+      if (node) {
+        __hoverNeighbors.add(node.id);
+        graphData.links.forEach(l => {
+          const src = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+          if (src === node.id) __hoverNeighbors.add(tgt);
+          if (tgt === node.id) __hoverNeighbors.add(src);
+        });
+      }
+      
+      graphData.nodes.forEach(n => {
+        n._highlighted = node ? __hoverNeighbors.has(n.id) : true;
+        n._dimmed = node && !__hoverNeighbors.has(n.id);
+      });
+      
+      graphData.links.forEach(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        l._highlighted = node ? (src === node.id || tgt === node.id) : true;
+      });
+      
+      (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null);
+    });
+  }
+
+  // ===========================
+  // 4. 节点点击事件
+  // ===========================
+  function onNodeClick(node, event) {
+    event.stopPropagation();
+    console.log('[V5] 点击节点:', node.name, 'industry:', node.industry);
+    selectedNode = node;
+    // v21 修复 Bug 16：点击节点时显示详情卡片
+    if (typeof window.__showDetailCard === 'function') {
+      window.__showDetailCard(node);
+    }
+    if (node.industry && node.industry !== currentFocus) {
+      focusIndustry(node.industry);
+    } else {
+      updateFocusDisplay();
+    }
+  }
+
+  function onNodeHover(node) {
+    // v21 修复 Bug 17：hover 时光标变化 + 触发 tooltip
+    if (typeof window.__hoverNode !== 'undefined') {
+      window.__hoverNode = node;
+    }
+    const canvas = document.querySelector('canvas');
+    if (canvas) canvas.style.cursor = node ? 'pointer' : 'default';
+  }
+
+  // ===========================
+  // 5. 行业聚焦（V5 修复：物理过滤 graphData）
+  // V4 根因诊断（16:13）：hidden=true 不重算 d3-force + zoomToFit 不动坐标
+  // V5 修复：物理替换 graphData（仅该行业节点 + 仅含两端都可见的边）
+  //         + 强 charge/link 让节点聚类排斥
+  // ===========================
+  function focusIndustry(industry) {
+    if (industry === '__all__' || !industry) {
+      clearFocus();
+      return;
+    }
+
+    currentFocus = industry;
+    console.log('[V5] 聚焦行业:', industry);
+
+    // V6 关键修复 1/3：物理过滤节点（仅保留该行业节点）
+    const visibleNodes = graphData.nodes.filter(n => n.industry === industry);
+    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+
+    // V6 关键修复 2/3：保留所有与 visible 节点相连的边（包括跨行业）
+    // 用 sourceId/targetId 记录原始 ID，但只渲染 visible 节点的边
+    // 力导向只认节点，所以其他节点不显示
+    // 但边保留可看到该行业与外部的连接关系
+    // V12 关键修复：只保留两端都在 visibleNodes 内的边（避免 node not found 错误）
+    // 之前 V11 的 OR filter 导致 1053 条边引用了不存在的节点（跨行业）
+    // 改用 AND filter：只保留该行业内部的边（数量少但稳定）
+    const visibleLinks = graphData.links
+      .filter(l => {
+        const sId = typeof l.source === 'string' ? l.source : (l.source && l.source.id);
+        const tId = typeof l.target === 'string' ? l.target : (l.target && l.target.id);
+        return visibleNodeIds.has(sId) && visibleNodeIds.has(tId);  // V12: 改 OR 为 AND
+      })
+      .map(l => {
+        const sId = typeof l.source === 'string' ? l.source : (l.source && l.source.id);
+        const tId = typeof l.target === 'string' ? l.target : (l.target && l.target.id);
+        return {
+          source: sId,
+          target: tId,
+          type: l.type,
+          color: l.color,
+          isSourceInIndustry: true,
+          isTargetInIndustry: true
+        };
+      });
+    console.log('[V12] 边过滤结果:', {
+      total: graphData.links.length,
+      visible: visibleLinks.length,
+      bothInIndustry: visibleLinks.length
+    });
+
+    console.log('[V5] 物理过滤:', {
+      nodes: visibleNodes.length,
+      links: visibleLinks.length,
+      sampleNodes: visibleNodes.slice(0, 3).map(n => n.name)
+    });
+
+    // V6 关键修复 3/3：环形初始位置 + 中心 cluster force
+    const N = visibleNodes.length;
+    const radius = Math.sqrt(N) * 35;
+    visibleNodes.forEach((n, i) => {
+      const angle = (i / N) * 2 * Math.PI;
+      n.x = Math.cos(angle) * radius;
+      n.y = Math.sin(angle) * radius;
+      // V6: 临时固定位置，防止被 zoomToFit 压缩
+      n.fx = n.x;
+      n.fy = n.y;
+    });
+
+    console.log('[V6] 节点环形位置:', { N, radius, sampleXY: visibleNodes.slice(0, 3).map(n => ({x: n.x, y: n.y})) });
+
+    // 核心：物理替换 graphData（仅 visible 节点 + 仅与 visible 节点相连的边）
+    const newData = { nodes: visibleNodes, links: visibleLinks };
+    Graph.graphData(newData);
+    console.log('[V8] Graph.graphData 已重设:', { nodes: newData.nodes.length, links: newData.links.length });
+
+    // v32: 修复 focusIndustry 三个根因（点击行业一团乱麻 + 偏离页面 + 没引力和聚类）
+    // 根因 1：focusIndustry 创建新 __d3Sim 但没 forceX/Y → 行业引力聚类完全失效
+    // 根因 2：环形初始位置在 (0,0) 周围，没调 Graph.centerAt(0,0) → 视图偏离出页面
+    // 根因 3：1500ms 后才释放 fx/fy → 一团乱麻过渡
+
+    // v32 修复：预设 visibleNodes 的 targetX/targetY 为该行业的环形位置（保持一致）
+    const industryTargetX = 0, industryTargetY = 0;
+    visibleNodes.forEach(n => {
+      n.targetX = industryTargetX;
+      n.targetY = industryTargetY;
+    });
+
+    // 重新设置强聚类排斥（使用 d3-force 原生配置，不调用 .strength() API）
+    // V15 关键修复：完全抛弃 Graph.d3Force() API，改用独立 d3-force 3.x
+    if (typeof d3 !== 'undefined' && d3.forceSimulation) {
+      // 停止旧仿真
+      if (window.__d3Sim) { try { window.__d3Sim.stop(); } catch(e) {} }
+      // V15 + v32: 创建独立 d3-force 仿真实例（这是真正驱动节点移动的方式）
+      // v32 修复：加入 forceX/Y 让行业聚类生效
+      window.__d3Sim = d3.forceSimulation(visibleNodes)
+        .force('charge', d3.forceManyBody().strength(-400))         // 强排斥
+        .force('link', d3.forceLink(visibleLinks).id(d => d.id).distance(50))  // 连线距离
+        .force('center', d3.forceCenter(0, 0).strength(0.1))       // 中心引力
+        .force('collide', d3.forceCollide ? d3.forceCollide(15) : null)  // 防止重叠
+        // v32: 加 forceX/Y — 行业聚类（根因 1 修复）
+        .force('x', d3.forceX(0).strength(0.08))   // v32: 所有节点拉向 X=0
+        .force('y', d3.forceY(0).strength(0.08))   // v32: 所有节点拉向 Y=0
+        .alpha(1)                  // 立即开始
+        .alphaDecay(0.05)         // v29: 0.01 → 0.05（5 倍加速衰减，~10fps 收敛）
+        .velocityDecay(0.4)
+        .restart();
+      console.log('[V15+v32] 独立 d3-force 仿真已启动 (industry):', {
+        nodes: visibleNodes.length,
+        links: visibleLinks.length,
+        alpha: window.__d3Sim.alpha(),
+        d3_version: d3.version || 'unknown'
+      });
+    } else {
+      console.error('[V15+v32] d3-force 3.x 未加载！请检查 CDN');
+    }
+
+    // v32 修复：立即释放 fx/fy（根因 3 修复 - 消除 1500ms 乱麻过渡）
+    // 不再 setTimeout 延迟释放
+    visibleNodes.forEach(n => { n.fx = null; n.fy = null; });
+    Graph.graphData(newData);  // 触发 d3-force 重计算
+    console.log('[V32] fx/fy 立即释放（消除 1500ms 乱麻过渡）');
+
+    // v32 修复：调用 Graph.centerAt(0,0) 让视图居中到行业聚类中心（根因 2 修复）
+    if (typeof Graph !== 'undefined' && typeof Graph.centerAt === 'function') {
+      try {
+        Graph.centerAt(0, 0, 600);  // 600ms 平滑动画到中心
+        console.log('[V32] Graph.centerAt(0,0) 已调用 — 视图居中');
+      } catch(e) {
+        console.warn('[V32] Graph.centerAt 失败:', e.message);
+      }
+    }
+
+    // 更新控件状态
+    document.querySelectorAll('.legend-item[data-industry]').forEach(el => {
+      el.classList.toggle('active', el.dataset.industry === industry);
+    });
+    document.querySelectorAll('.legend-item[data-type]').forEach(el => {
+      el.classList.remove('active');
+    });
+
+    // v19 fix Bug 6: 切换行业时同步触发 subIndustry 二级下钻
+    // v26: __updateSubIndustryPanel 已融合到 aggPanel
+
+    if (typeof window.__renderAggPanel === 'function') window.__renderAggPanel();
+
+    updateFocusDisplay(visibleNodes.length, visibleLinks.length);
+    console.log('[V6] updateFocusDisplay 传入:', { visibleNodes: visibleNodes.length, visibleLinks: visibleLinks.length });
+  }
+
+  // B6: 类型过滤器（按 checkbox 多选结果过滤可见节点）
+  function applyTypeFilter() {
+    if (!window.__visibleTypes) return;
+    const visibleTypes = window.__visibleTypes;
+    const filteredNodes = graphData.nodes.filter(n => visibleTypes.has(n.type));
+    const visibleNodeIds = new Set(filteredNodes.map(n => n.id));
+    // V12: 只保留两端都在 visible 内的边
+    const filteredLinks = graphData.links.filter(l => {
+      const s = typeof l.source === 'string' ? l.source : (l.source && l.source.id);
+      const t = typeof l.target === 'string' ? l.target : (l.target && l.target.id);
+      return visibleNodeIds.has(s) && visibleNodeIds.has(t);
+    });
+    Graph.graphData({ nodes: filteredNodes, links: filteredLinks });
+    
+    // B6: 应用过滤后重启 d3-force 仿真（让节点重新散开 + 持续动画）
+    if (window.__d3Sim) {
+      window.__d3Sim.nodes(filteredNodes);
+      if (filteredLinks.length > 0) {
+        window.__d3Sim.force('link').links(filteredLinks);
+      }
+      window.__d3Sim.alpha(0.5).restart();
+    }
+    
+    updateFocusDisplay(filteredNodes.length, filteredLinks.length);
+    console.log('[B6] type 过滤:', {
+      visibleTypes: Array.from(visibleTypes),
+      visibleNodes: filteredNodes.length,
+      visibleLinks: filteredLinks.length
+    });
+  }
+
+  function clearFocus() {
+    currentFocus = null;
+    currentTypeFocus = null;
+    selectedNode = null;
+
+    // V5 关键修复：恢复原始 graphData
+    Graph.graphData(graphData);
+
+    // v23 关键修复：clearFocus 内 visibleNodes 引用了 focusIndustry/focusType 的局部变量
+    // 修复：clearFocus 是恢复全景，应该用原始 graphData
+    const _origNodes = graphData.nodes;
+    const _origLinks = graphData.links;
+
+    // 重新设置强聚类排斥
+    // V15 关键修复：完全抛弃 Graph.d3Force() API，改用独立 d3-force 3.x
+    if (typeof d3 !== 'undefined' && d3.forceSimulation) {
+      // 停止旧仿真
+      if (window.__d3Sim) { try { window.__d3Sim.stop(); } catch(e) {} }
+      // V15: 创建独立 d3-force 仿真实例（这是真正驱动节点移动的方式）
+      window.__d3Sim = d3.forceSimulation(_origNodes)
+        .force('charge', d3.forceManyBody().strength(-400))         // 强排斥
+        .force('link', d3.forceLink(_origLinks).id(d => d.id).distance(50))  // 连线距离
+        .force('center', d3.forceCenter(0, 0).strength(0.1))       // 中心引力
+        .force('collide', d3.forceCollide ? d3.forceCollide(15) : null)  // 防止重叠
+        .alpha(1)                  // 立即开始
+        .alphaDecay(0.05)         // v29: 0.01 → 0.05（5 倍加速衰减，~10fps 收敛）
+        .velocityDecay(0.4)
+        .restart();
+      console.log('[V15] 独立 d3-force 仿真已启动 (clearFocus 全景):', {
+        nodes: _origNodes.length,
+        links: _origLinks.length,
+        alpha: window.__d3Sim.alpha(),
+        d3_version: d3.version || 'unknown'
+      });
+    } else {
+      console.error('[V15] d3-force 3.x 未加载！请检查 CDN');
+    }
+
+    // 1500ms 后 zoomToFit 全景
+    setTimeout(() => {
+      try {
+        Graph.zoomToFit(1000, 80);
+        console.log('[V6] 恢复全景 zoomToFit 完成');
+      } catch (e) {
+        console.warn('[V6] 恢复 zoomToFit 失败:', e);
+      }
+    }, 2000);
+
+    document.querySelectorAll('.legend-item').forEach(el => el.classList.remove('active'));
+    updateFocusDisplay(graphData.nodes.length, graphData.links.length);
+    // v25: 联动隐藏 subIndustryPanel（恢复全景时清除）
+    // v26: __updateSubIndustryPanel 已融合到 aggPanel
+
+    if (typeof window.__renderAggPanel === 'function') window.__renderAggPanel();
+  }
+
+  function focusType(type) {
+    currentTypeFocus = type;
+    currentFocus = null;
+
+    // V12：物理过滤 + AND filter（两端都在 visible 内才保留）
+    const visibleNodes = graphData.nodes.filter(n => n.type === type);
+    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+    const visibleLinks = graphData.links.filter(l => {
+      const s = typeof l.source === 'string' ? l.source : (l.source && l.source.id);
+      const t = typeof l.target === 'string' ? l.target : (l.target && l.target.id);
+      return visibleNodeIds.has(s) && visibleNodeIds.has(t);  // V12: AND
+    });
+
+    const N = visibleNodes.length;
+    const radius = Math.sqrt(N) * 35;
+    visibleNodes.forEach((n, i) => {
+      const angle = (i / N) * 2 * Math.PI;
+      n.x = Math.cos(angle) * radius;
+      n.y = Math.sin(angle) * radius;
+    });
+
+    const newData = { nodes: visibleNodes, links: visibleLinks };
+    Graph.graphData(newData);
+
+    // V15 关键修复：完全抛弃 Graph.d3Force() API，改用独立 d3-force 3.x
+    if (typeof d3 !== 'undefined' && d3.forceSimulation) {
+      // 停止旧仿真
+      if (window.__d3Sim) { try { window.__d3Sim.stop(); } catch(e) {} }
+      // V15: 创建独立 d3-force 仿真实例（这是真正驱动节点移动的方式）
+      window.__d3Sim = d3.forceSimulation(visibleNodes)
+        .force('charge', d3.forceManyBody().strength(-400))         // 强排斥
+        .force('link', d3.forceLink(visibleLinks).id(d => d.id).distance(50))  // 连线距离
+        .force('center', d3.forceCenter(0, 0).strength(0.1))       // 中心引力
+        .force('collide', d3.forceCollide ? d3.forceCollide(15) : null)  // 防止重叠
+        .alpha(1)                  // 立即开始
+        .alphaDecay(0.05)         // v29: 0.01 → 0.05（5 倍加速衰减，~10fps 收敛）
+        .velocityDecay(0.4)
+        .restart();
+      console.log('[V15] 独立 d3-force 仿真已启动 (industry):', {
+        nodes: visibleNodes.length,
+        links: visibleLinks.length,
+        alpha: window.__d3Sim.alpha(),
+        d3_version: d3.version || 'unknown'
+      });
+    } else {
+      console.error('[V15] d3-force 3.x 未加载！请检查 CDN');
+    }
+    Graph.d3Force('center').strength(0.1);
+    try { Graph.d3ReheatSimulation(); } catch(e) {}
+
+    setTimeout(() => {
+      try {
+        Graph.zoomToFit(1000, 80);
+      } catch (e) {}
+    }, 2000);
+
+    document.querySelectorAll('.legend-item[data-industry]').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.legend-item[data-type]').forEach(el => {
+      el.classList.toggle('active', el.dataset.type === type);
+    });
+    updateFocusDisplay(visibleNodes.length, visibleLinks.length);
+  }
+
+  function updateFocusDisplay(visibleCount, linkCount) {
+    document.getElementById('focusName').textContent =
+      currentFocus || currentTypeFocus || (selectedNode ? selectedNode.name : '全景');
+    document.getElementById('focusCount').textContent = visibleCount || 0;
+    document.getElementById('statEntities').textContent = visibleCount || graphData.nodes.length;
+    document.getElementById('statEdges').textContent = linkCount || graphData.links.length;
+  }
+
+  // ===========================
+  // 6. 图例（V5 关键：仅右侧图例）
+  // ===========================
+  function initLegend() {
+    const industries = {};
+    rawData.entities.forEach(e => {
+      if (e.industry) industries[e.industry] = (industries[e.industry] || 0) + 1;
+    });
+    const top = Object.entries(industries).sort((a, b) => b[1] - a[1]).slice(0, 12);
+
+    const legendHtml = top.map(([ind, count]) => {
+      const sample = rawData.entities.find(e => e.industry === ind && e.color);
+      const color = sample ? sample.color : '#FFD700';
+      return `<div class="legend-item" data-industry="${escapeHtml(ind)}" style="color:#ccc">
+        <div class="legend-color" style="background:${color}"></div>
+        <span>${escapeHtml(ind)} (${count})</span>
+      </div>`;
+    }).join('');
+
+    // B6: type 改为 checkbox 多选（控制可见的 type 类别）
+    const allTypes = Object.keys(TYPE_COLORS);
+    if (!window.__visibleTypes) {
+      // v30.3: 主公决策方案 A —— 默认显示 ORG（公司企业）+ INDUSTRY（行业）2 种
+      // 共 1250 节点（ORG 952 + INDUSTRY 298），开局更聚焦
+      // 其他 9 种类型（PRODUCT/TECH/POLICY/PERSON/PLACE/INDICATOR/RISK/CONCEPT/CHANNEL）
+      // 手动点击 legend checkbox 才显示
+      window.__visibleTypes = new Set(['ORG', 'INDUSTRY']);
+      // v30.2: 重要修复 — 初始化后必须立即调用 applyTypeFilter() 让默认过滤生效
+      // 根因：之前仅设 __visibleTypes 但未调 applyTypeFilter → graphData 仍显示全部 2420 个
+      // 修复：首次设置默认可见类型后立即调一次 applyTypeFilter() 让真正过滤生效
+      if (typeof applyTypeFilter === 'function') applyTypeFilter();
+    }
+    const typeHtml = Object.entries(TYPE_COLORS).map(([t, c]) => {
+      const count = rawData.entities.filter(e => e.type === t).length;
+      const checked = window.__visibleTypes.has(t) ? 'checked' : '';
+      return `<label class="legend-item legend-type-checkbox" data-type="${t}" style="color:#ccc">
+        <input type="checkbox" class="type-cb" data-type="${t}" ${checked}>
+        <div class="legend-color" style="background:${c}"></div>
+        <span>${t} (${count})</span>
+      </label>`;
+    }).join('');
+
+    const html = `<h4>🏭 Top 12 行业（点击聚焦）</h4>${legendHtml}
+      <h4 style="margin-top:12px">📦 实体类型（多选控制显示）</h4>
+      <div style="margin-bottom:8px"><button id="selectAllTypes" style="font-size:12px;padding:2px 8px">全选</button> <button id="deselectAllTypes" style="font-size:12px;padding:2px 8px">全不选</button></div>
+      ${typeHtml}`;
+
+    document.getElementById('legendContent').innerHTML = html;
+
+    // B6: 绑定 checkbox 事件
+    document.querySelectorAll('.type-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const t = cb.dataset.type;
+        if (cb.checked) {
+          window.__visibleTypes.add(t);
+        } else {
+          window.__visibleTypes.delete(t);
+        }
+        applyTypeFilter();
+      });
+    });
+    document.getElementById('selectAllTypes').addEventListener('click', () => {
+      allTypes.forEach(t => window.__visibleTypes.add(t));
+      document.querySelectorAll('.type-cb').forEach(cb => cb.checked = true);
+      applyTypeFilter();
+    });
+    document.getElementById('deselectAllTypes').addEventListener('click', () => {
+      window.__visibleTypes.clear();
+      document.querySelectorAll('.type-cb').forEach(cb => cb.checked = false);
+      applyTypeFilter();
+    });
+
+    // v26.2: legend 行业 click 同步设置 funnel state (联动 aggPanel)
+    document.querySelectorAll('.legend-item[data-industry]').forEach(el => {
+      el.addEventListener('click', () => {
+        const ind = el.dataset.industry;
+        if (currentFocus === ind) {
+          clearFocus();
+          // 恢复 L0 funnel state
+          if (window.__dataFunnel) {
+            window.__dataFunnel.level = 'L0';
+            window.__dataFunnel.currentIndustry = null;
+            window.__dataFunnel.currentNode = null;
+          }
+          if (typeof window.__renderAggPanel === 'function') window.__renderAggPanel();
+        } else {
+          focusIndustry(ind);
+          // v26.2: 同步设置 funnel state 让 aggPanel 显示该行业聚合
+          if (window.__dataFunnel) {
+            window.__dataFunnel.level = 'L1';
+            window.__dataFunnel.currentIndustry = ind;
+            window.__dataFunnel.currentNode = null;
+          }
+          if (typeof window.__renderAggPanel === 'function') window.__renderAggPanel();
+        }
+      });
+    });
+
+    document.querySelectorAll('.legend-item[data-type]').forEach(el => {
+      el.addEventListener('click', () => {
+        const t = el.dataset.type;
+        if (currentTypeFocus === t) {
+          clearFocus();
+        } else {
+          focusType(t);
+        }
+      });
+    });
+  }
+
+  // ===========================
+  // 7. 控件（V5：删除行业下拉，仅保留重置 + 清除聚焦）
+  // ===========================
+  function initControls() {
+    document.getElementById('btnReset').addEventListener('click', () => {
+      Graph.zoomToFit(800, 60);
+    });
+    document.getElementById('btnClearFocus').addEventListener('click', clearFocus);
+
+    document.getElementById('statIndustries').textContent =
+      new Set(rawData.entities.map(e => e.industry)).size;
+  }
+
+  // ===========================
+  // 8. 工具函数
+  // ===========================
+  function updateStats() {
+    document.getElementById('statEntities').textContent = graphData.nodes.length;
+    document.getElementById('statEdges').textContent = graphData.links.length;
+  }
+
+  function escapeHtml(s) {
+    if (typeof s !== 'string') return s;
+    return s.replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // ===========================
+  // 启动
+  // ===========================
+  loadData().catch(err => {
+    console.error('[V5] 加载失败:', err);
+    document.getElementById('loader').innerHTML = `<div style="color:#f87171">❌ 加载失败: ${err.message}</div>`;
+  });
+</script>
+</body>
+</html>

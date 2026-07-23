@@ -1,0 +1,32 @@
+# 排除项目管家目录（不混入）
+/Users/jinzhanxiang/.openclaw/workspace-project/
+/Users/jinzhanxiang/.openclaw/workspace-data/
+
+# 排除备份文件
+*.bak
+*.bak_*
+backups/
+
+# 排除临时文件
+__pycache__/
+*.pyc
+*.pyo
+*.swp
+.DS_Store
+*.log
+
+# 排除 Python 脚本（deploy 目录不需要）
+*.py
+!deploy.py
+
+# 排除其他研究文档
+KG_VIZ_*.md
+KG_*.md
+b*_verify.py
+
+# 排除 data.json（用 LFS 或外部存储）
+data.json
+
+# 排除本地配置
+.env
+*.local
