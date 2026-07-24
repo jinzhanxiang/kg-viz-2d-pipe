@@ -2150,7 +2150,8 @@ window.__showDetailCard = function(node) {
           list.slice(0, 4).forEach(ind => {
             const unit = ind.unit ? `<span style="color:#888;"> ${escapeHtml(ind.unit)}</span>` : '';
             const isCore = ind.is_core ? '⭐' : '·';
-            relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;">${isCore} ${escapeHtml(ind.indicator_name.slice(0, 40))}${unit}</div>`;
+            // P197 Fix (2026-07-24): data.json 用 ind.name（不是 indicator_name）
+            relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;">${isCore} ${escapeHtml(ind.name.slice(0, 40))}${unit}</div>`;
           });
         });
       }
@@ -2161,25 +2162,38 @@ window.__showDetailCard = function(node) {
         relatedHtml += '<div style="color:#DDA0DD;font-weight:bold;margin:14px 0 6px;font-size:13px;">🔬 研究框架 <span style="color:#888;font-weight:normal;">×' + frameworks.length + '</span></div>';
         const fwByType = {};
         frameworks.forEach(fw => {
-          const t = fw.framework_type || '其他';
+          // P197 Fix (2026-07-24): data.json 用 fw.type（不是 framework_type）
+          const t = fw.type || fw.framework_type || '其他';
           if (!fwByType[t]) fwByType[t] = [];
           fwByType[t].push(fw);
         });
         Object.entries(fwByType).slice(0, 4).forEach(([ftype, list]) => {
-          const typeLabel = {core_architecture:'核心架构', logic:'逻辑论证', risk:'风险评估', opportunity:'机遇识别', methodology:'方法论', critical_reflection:'质疑反思'}[ftype] || ftype;
+          // P197 Fix: 扩展 typeLabel 字典（基于实测 83591 个 framework 的 type 分布）
+          const typeLabel = {
+            core_architecture:'核心架构',
+            logic:'逻辑论证',
+            risk:'风险评估',
+            opportunity:'机遇识别',
+            methodology:'方法论',
+            critical_reflection:'质疑反思',
+            valuation:'估值分析',
+            policy:'政策分析',
+            trend:'趋势分析',
+            comparison:'对比分析'
+          }[ftype] || ftype;
           relatedHtml += `<div style="color:#DDA0DD;font-size:11px;margin:6px 0 4px;font-weight:bold;">▸ ${escapeHtml(typeLabel)}（${list.length}）</div>`;
           list.slice(0, 3).forEach(fw => {
             const conf = fw.confidence ? ` <span style="color:#888;">[${(fw.confidence*100).toFixed(0)}%]</span>` : '';
-            const dim = fw.dimension ? ` <span style="color:#9CDCFE;font-size:10px;">[维度${fw.dimension}]</span>` : '';
-            const ind = fw.apply_industry ? ` <span style="color:#B5CEA8;font-size:10px;">[${escapeHtml(fw.apply_industry)}]</span>` : '';
+            // P197 Fix (2026-07-24): data.json 用 fw.name / fw.industry / fw.category
+            // P199 Fix (2026-07-24 16:58): 双 schema 兼容 — 部分旧版 enrichment 用 framework_name / apply_industry
+            const fwName = fw.name || fw.framework_name || '未命名框架';
+            const fwIndustry = fw.industry || fw.apply_industry || '';
+            const fwCategory = fw.category || fw.apply_scenario || '';
+            const ind = fwIndustry ? ` <span style="color:#B5CEA8;font-size:10px;">[${escapeHtml(fwIndustry)}]</span>` : '';
+            const cat = fwCategory ? ` <span style="color:#9CDCFE;font-size:10px;">[${escapeHtml(fwCategory)}]</span>` : '';
             // 名称 + 元数据
-            relatedHtml += `<div style="font-size:13px;color:#FFD700;font-weight:600;line-height:1.5;padding:4px 8px;margin:4px 0 2px;background:rgba(255,215,0,0.06);border-radius:3px;">📐 ${escapeHtml(fw.framework_name)}${conf}${dim}${ind}</div>`;
-            // 应用场景
-            if (fw.apply_scenario) {
-              const scenarioText = typeof fw.apply_scenario === 'string' ? fw.apply_scenario : (Array.isArray(fw.apply_scenario) ? fw.apply_scenario.join('；') : JSON.stringify(fw.apply_scenario));
-              relatedHtml += `<div style="font-size:11px;color:#aab;line-height:1.6;padding:2px 16px;margin:1px 0;"><b style="color:#888;">场景：</b>${escapeHtml(scenarioText.slice(0, 200))}${scenarioText.length > 200 ? '...' : ''}</div>`;
-            }
-            // content（含完整描述/核心维度/步骤）
+            relatedHtml += `<div style="font-size:13px;color:#FFD700;font-weight:600;line-height:1.5;padding:4px 8px;margin:4px 0 2px;background:rgba(255,215,0,0.06);border-radius:3px;">📐 ${escapeHtml(fwName)}${conf}${cat}${ind}</div>`;
+            // content（含完整描述/核心维度/步骤）— data.json 的 fw.content 包含全部
             if (fw.content) {
               let contentText = fw.content;
               // 如果 content 太长，提取关键部分
