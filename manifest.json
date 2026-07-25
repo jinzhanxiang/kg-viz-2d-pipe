@@ -1,14 +1,14 @@
 {
   "version": "2026-07-24.2",
-  "split_at": "2026-07-25T15:24:26.469504",
+  "split_at": "2026-07-25T16:50:29.282635",
   "source_file": "/Users/jinzhanxiang/kg-viz/data/kg_data.json",
   "source_size_mb": 33.1,
   "counts": {
-    "entities": 2470,
-    "relations": 4090,
-    "frameworks": 419,
-    "indicators": 8969,
-    "logic_chains": 4851,
+    "entities": 2494,
+    "relations": 4133,
+    "frameworks": 425,
+    "indicators": 9007,
+    "logic_chains": 4862,
     "industries": 20
   },
   "split_files": {
@@ -21,9 +21,9 @@
   },
   "industry_buckets": {
     "金融": 205,
-    "unknown": 290,
+    "unknown": 310,
     "半导体": 333,
-    "新能源电池行业": 421,
+    "新能源电池行业": 425,
     "消费": 166,
     "新能源": 138,
     "新材料": 113,
