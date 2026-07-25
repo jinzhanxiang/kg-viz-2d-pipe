@@ -670,27 +670,36 @@
   let selectedNode = null;
 
   // ===========================
-  // 1. 加载 data.json
+  // 1. 加载数据（从 split 文件：entities.json + relations.json）
   // ===========================
   async function loadData() {
-    // v15 数据补全后：加 cache-busting 避免浏览器缓存旧版本 data.json
-    const cacheBuster = '?v=' + Date.now();
-    const res = await fetch('./data.json' + cacheBuster, {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' }
-    });
-    rawData = await res.json();
-    console.log('[V5] 加载原始数据:', {
-      entities: rawData.entities.length,
-      edges: rawData.edges.length,
-      industries: new Set(rawData.entities.map(e => e.industry)).size
-    });
-    transformData();
-    initGraph();
-    initControls();
-    initLegend();
-    updateStats();
-    document.getElementById('loader').classList.add('hidden');
+    try {
+      const cacheBuster = '?v=' + Date.now();
+      // 优先从 split 文件加载（P200 拆分架构）
+      const [entitiesRes, relationsRes] = await Promise.all([
+        fetch('./entities.json' + cacheBuster, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }),
+        fetch('./relations.json' + cacheBuster, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
+      ]);
+      if (!entitiesRes.ok) throw new Error('entities.json 加载失败: HTTP ' + entitiesRes.status);
+      if (!relationsRes.ok) throw new Error('relations.json 加载失败: HTTP ' + relationsRes.status);
+      const entities = await entitiesRes.json();
+      const relations = await relationsRes.json();
+      rawData = { entities, edges: relations };
+      console.log('[V5] 加载原始数据:', {
+        entities: rawData.entities.length,
+        edges: rawData.edges.length,
+        industries: new Set(rawData.entities.map(e => e.industry)).size
+      });
+      transformData();
+      initGraph();
+      initControls();
+      initLegend();
+      updateStats();
+      document.getElementById('loader').classList.add('hidden');
+    } catch (err) {
+      console.error('[V5] 数据加载失败:', err);
+      document.getElementById('loader').innerHTML = '❌ 数据加载失败: ' + err.message + '<br><small>请刷新页面重试</small>';
+    }
   }
 
   // ===========================
