@@ -2080,6 +2080,34 @@ window.__showDetailCard = function(node) {
         if (other.type === 'TECH') techRelations.push({ node: other, edgeType: t, dir: sId === node.id ? 'out' : 'in' });
       });
 
+      // ── 去重：双向关系合并（如 英伟达→AMD 竞争 + AMD→英伟达 竞争 → 英伟达↔AMD 竞争）──
+      Object.keys(relationGroups).forEach(key => {
+        const list = relationGroups[key];
+        const merged = [];
+        const seen = new Map(); // neighborId → entry
+        list.forEach(item => {
+          const nid = item.node.id;
+          if (seen.has(nid)) {
+            const existing = seen.get(nid);
+            // 已有记录，标记为双向
+            if (existing.dir !== item.dir) {
+              existing.dir = 'both';
+            }
+          } else {
+            seen.set(nid, { ...item });
+          }
+        });
+        relationGroups[key] = Array.from(seen.values());
+      });
+      // ── 去重2：PRODUCT/TECH 节点已在"产品/技术"分类展示，从其他分类移除 ──
+      const productTechIds = new Set();
+      productRelations.forEach(item => productTechIds.add(item.node.id));
+      techRelations.forEach(item => productTechIds.add(item.node.id));
+      Object.keys(relationGroups).forEach(key => {
+        if (key === '产品' || key === '技术') return;
+        relationGroups[key] = relationGroups[key].filter(item => !productTechIds.has(item.node.id));
+      });
+
       // 2. 渲染：按主公要求顺序
       const relationOrder = [
         { key: '竞争', emoji: '🔴', color: '#FF6B6B', desc: '与该节点存在业务/市场竞争关系' },
@@ -2105,7 +2133,7 @@ window.__showDetailCard = function(node) {
         // 限制每个类别最多 10 个
         list.slice(0, 10).forEach(item => {
           const n = item.node;
-          const dir = item.dir === 'out' ? '→' : '←';
+          const dir = item.dir === 'out' ? '→' : item.dir === 'both' ? '↔' : '←';
           const nc = TYPE_COLORS[n.type] || '#888';
           const edgeTypeLabel = item.edgeType && item.edgeType !== groupKey ? `<span style="color:#666;font-size:11px;"> [${escapeHtml(item.edgeType)}]</span>` : '';
           html.push(`<div class="detail-relation-item" data-id="${escapeHtml(n.id)}" style="font-size:13px;color:#ccc;line-height:1.8;padding:5px 10px;cursor:pointer;border-left:3px solid ${color};margin:3px 0;border-radius:4px;background:rgba(255,255,255,0.02);" onmouseover="this.style.background='${color}25';this.style.paddingLeft='14px'" onmouseout="this.style.background='rgba(255,255,255,0.02)';this.style.paddingLeft='10px'">
