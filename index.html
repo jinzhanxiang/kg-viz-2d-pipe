@@ -726,6 +726,7 @@
       _indicators: e._indicators || [],  // v44 P0-1 : 关联指标（enrich_v44 PG attach）
       _frameworks: e._frameworks || [],  // v44 P0-2 : 研究框架（6 大维度）
       _relatedEntities: e._relatedEntities || [],  // v44 P0-3 : 关联实体（含 description）
+      _reports: e._reports || [],  // P221 (2026-07-28): 原始研报数据（report_id + title）
     }));
 
     const idSet = new Set(nodes.map(n => n.id));
