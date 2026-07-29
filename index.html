@@ -3616,6 +3616,39 @@ window.__showDetailCard = function(node) {
     console.error('[V5] 加载失败:', err);
     document.getElementById('loader').innerHTML = `<div style="color:#f87171">❌ 加载失败: ${err.message}</div>`;
   });
+
+  // ===========================
+  // P228: URL 参数 entity=xxx — 从报告页跳转自动定位+弹出详情卡
+  // ===========================
+  function handleEntityParam() {
+    const params = new URLSearchParams(window.location.search);
+    const entityName = params.get('entity');
+    if (!entityName) return;
+    setTimeout(() => {
+      if (!Graph || !window.__dataFunnel) return;
+      const node = (window.graphData?.nodes || []).find(n =>
+        (n.name || '').toLowerCase() === entityName.toLowerCase()
+      );
+      if (!node) {
+        console.warn('[P228] 未找到实体:', entityName);
+        return;
+      }
+      // 展开到 L4 详情
+      window.__dataFunnel.level = 'L4';
+      window.__dataFunnel.currentNode = node.id;
+      window.__applyDataFunnel();
+      setTimeout(() => {
+        if (node.x !== undefined) {
+          Graph.centerAt(node.x, node.y, 800);
+          Graph.zoom(3, 800);
+        }
+        if (typeof window.__showDetailCard === 'function') {
+          window.__showDetailCard(node);
+        }
+      }, 500);
+    }, 1500);
+  }
+  handleEntityParam();
 </script>
 </body>
 </html>
