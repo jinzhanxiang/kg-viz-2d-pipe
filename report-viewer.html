@@ -74,24 +74,52 @@ body{background:var(--bg);color:var(--fg);font-size:17px;line-height:1.7;min-hei
   padding:10px 14px;text-align:left;border-bottom:1px solid var(--border)}
 .tbl td{padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.03);color:var(--fg)}
 .tbl tr:hover td{background:rgba(255,255,255,.02)}
-.tbl .v{color:var(--gold);font-weight:700;font-family:monospace}
+.tbl .v{color:var(--gold);font-weight:700;font-family:monospace;font-size:15px;text-align:center}
 .tbl .e{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 
 /* Logic */
 .lc{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;
   margin-bottom:6px;font-size:14px;line-height:1.6}
-.lc .lt{color:var(--fg)}
-.lc .lp{font-size:12px;color:var(--fg3);margin-top:4px;padding:4px 8px;background:rgba(255,255,255,.03);
-  border-radius:4px;border-left:2px solid var(--purple)}
-.lc .lc2{font-size:12px;color:var(--fg3);margin-top:2px;padding:4px 8px;background:rgba(255,255,255,.03);
-  border-radius:4px;border-left:2px solid var(--gold)}
-.lc .lcf{font-size:11px;color:var(--fg3);margin-top:4px}
+/* Logic card — P228 replaced with .lgrid/.lchdr/.lbody layout; old .lc .lt/.lp/.lc2/.lcf removed to avoid specificity override */
 
-/* Framework card */
-.fc{padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
-.fc .fn{color:#fff;font-weight:600;font-size:15px}
-.fc .ft{font-size:11px;color:var(--fg3);margin-left:8px}
-.fc .fd{font-size:12px;color:var(--fg2);margin-top:4px;line-height:1.5}
+/* Indicator table P228 enhancement */
+
+/* Framework card (P228) */
+.fgrid{display:grid;grid-template-columns:1fr;gap:14px}
+.fc{padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);border-left:3px solid var(--purple);transition:all .2s}
+.fc:hover{background:var(--bg3);border-color:var(--purple)}
+.fch{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.fctype{font-size:10px;font-weight:600;color:#fff;background:rgba(162,155,254,.2);padding:2px 10px;border-radius:10px;letter-spacing:.5px}
+.fcname{font-size:16px;font-weight:700;color:#fff}
+.fmeta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.fm{font-size:12px;color:var(--fg2);background:rgba(255,255,255,.04);padding:3px 10px;border-radius:6px;display:flex;align-items:center;gap:4px}
+.fm b{color:var(--fg3);font-weight:400;font-size:11px}
+.fsc{font-size:12px;color:var(--accent);background:rgba(93,173,226,.08);padding:3px 10px;border-radius:6px;display:flex;align-items:center;gap:4px}
+.fsc b{color:var(--accent);font-weight:400;font-size:11px}
+.fstep-title{font-size:13px;font-weight:600;color:var(--gold);margin:8px 0 4px;display:flex;align-items:center;gap:4px}
+.fsteps{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
+.fsteps > div{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--fg2);padding:6px 10px;background:rgba(245,176,65,.04);border-radius:6px;line-height:1.5}
+.fsnum{flex-shrink:0;width:20px;height:20px;border-radius:50%;background:var(--gold);color:#111;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.fcont{font-size:12px;color:var(--fg2);margin-top:8px;padding:8px 12px;background:rgba(255,255,255,.02);border-radius:6px;line-height:1.7}
+.fcont b{color:var(--fg3);font-weight:400;font-size:11px}
+
+/* Logic chain card (P228) */
+.lgrid{display:grid;grid-template-columns:1fr;gap:12px}
+.lc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;border-left:3px solid var(--purple);transition:all .2s}
+.lc:hover{background:var(--bg3);border-color:var(--gold)}
+.lchdr{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.lctype{font-size:10px;font-weight:600;color:var(--purple);background:rgba(162,155,254,.15);padding:2px 10px;border-radius:10px}
+.lctext{flex:1;font-size:14px;color:var(--fg);font-weight:600;line-height:1.5}
+.lconf{flex-shrink:0;font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px}
+.lbody{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lp{padding:8px 12px;background:rgba(93,173,226,.06);border-radius:6px;font-size:12px;line-height:1.6;color:var(--fg2);display:flex;gap:6px;align-items:flex-start}
+.lp b{color:var(--accent);font-weight:600;font-size:11px;flex-shrink:0;white-space:nowrap}
+.lc2{padding:8px 12px;background:rgba(88,214,141,.06);border-radius:6px;font-size:12px;line-height:1.6;color:var(--fg2);display:flex;gap:6px;align-items:flex-start}
+.lc2 b{color:var(--green);font-weight:600;font-size:11px;flex-shrink:0;white-space:nowrap}
+
+@media (max-width:640px){
+  .lbody{grid-template-columns:1fr}
+}
 
 /* Relation */
 .rc{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--bg2);
@@ -208,21 +236,40 @@ function renderReport(r) {
       }</div></div>`;
   }
 
-  // ─── Frameworks ───
+  // ─── Frameworks (P228 重构) ─── 完整卡片：场景/维度/步骤/内容
   if (r.frameworks && r.frameworks.length > 0) {
-    cnt.innerHTML += `<div class="sec"><div class="sec-h">📐 框架 <span class="cnt">${r.frameworks.length}</span></div>`;
+    let fGrid = '';
     r.frameworks.forEach(f => {
       let dims = '';
       try {
         const d = JSON.parse(f.dimensions);
         if (Array.isArray(d)) dims = d.join(' · ');
       } catch(e) { dims = f.dimensions || ''; }
-      cnt.innerHTML += `<div class="fc">
-        <div class="fn">${escHtml(f.name)} <span class="ft">${escHtml(f.type || '')}</span></div>
-        ${dims ? `<div class="fd">核心维度: ${escHtml(dims)}</div>` : ''}
+      let stepsHtml = '';
+      try {
+        const s = JSON.parse(f.steps);
+        if (Array.isArray(s) && s.length > 0) {
+          stepsHtml = '<div class="fsteps">' + s.map((x, i) =>
+            `<span class="fsnum">${i+1}</span><span>${escHtml(x)}</span>`
+          ).join('') + '</div>';
+        }
+      } catch(e) {}
+      fGrid += `<div class="fc">
+        <div class="fch">
+          <span class="fctype">${escHtml(f.type || '')}</span>
+          <span class="fcname">${escHtml(f.name)}</span>
+        </div>
+        <div class="fmeta">
+          ${f.category ? `<span class="fm"><b>分类</b>${escHtml(f.category)}</span>` : ''}
+          ${f.apply_industry ? `<span class="fm"><b>行业</b>${escHtml(f.apply_industry)}</span>` : ''}
+          ${f.apply_scenario ? `<span class="fsc"><b>场景</b>${escHtml(f.apply_scenario)}</span>` : ''}
+          ${dims ? `<span class="fm"><b>维度</b>${escHtml(dims)}</span>` : ''}
+        </div>
+        ${stepsHtml ? `<div class="fstep-title">📍 分析步骤</div>${stepsHtml}` : ''}
+        ${f.content ? `<div class="fcont"><b>内容</b>${escHtml(f.content)}</div>` : ''}
       </div>`;
     });
-    cnt.innerHTML += `</div>`;
+    cnt.innerHTML += `<div class="sec"><div class="sec-h">📐 研究框架 <span class="cnt">${r.frameworks.length}</span></div><div class="fgrid">${fGrid}</div></div>`;
   }
 
   // ─── Entities ───
@@ -254,19 +301,25 @@ function renderReport(r) {
     cnt.innerHTML += `</table></div>`;
   }
 
-  // ─── Logic Chains ───
+  // ─── Logic Chains (P228 重构) ─── 三段式展开：摘要+前提→结论+置信度徽章
   if (r.logic_chains && r.logic_chains.length > 0) {
-    cnt.innerHTML += `<div class="sec"><div class="sec-h">🧠 逻辑链 <span class="cnt">${r.logic_chains.length}</span></div>`;
-    r.logic_chains.slice(0, 20).forEach(lc => {
-      const conf = lc.confidence ? (lc.confidence * 100).toFixed(0) + '%' : '';
-      cnt.innerHTML += `<div class="lc">
-        <div class="lt">${escHtml(lc.text)}</div>
-        ${lc.premise ? `<div class="lp">前提: ${escHtml(lc.premise)}</div>` : ''}
-        ${lc.conclusion ? `<div class="lc2">结论: ${escHtml(lc.conclusion)}</div>` : ''}
-        <div class="lcf">${conf ? `置信度: ${conf}` : ''}</div>
+    let lcGrid = '';
+    r.logic_chains.forEach(lc => {
+      const conf = lc.confidence ? (lc.confidence * 100).toFixed(0) : null;
+      const dimMap = {1:'宏观',2:'行业',3:'公司',4:'技术',5:'政策',6:'财务'};
+      lcGrid += `<div class="lc">
+        <div class="lchdr">
+          <span class="lctype">${escHtml(dimMap[lc.dimension] || lc.dimension || '分析')}</span>
+          <span class="lctext">${escHtml(lc.text || '')}</span>
+          ${conf ? `<span class="lconf" style="background:${conf>=80?'rgba(88,214,141,.15)':'rgba(245,176,65,.15)'};color:${conf>=80?'var(--green)':'var(--gold)'}">🎯 ${conf}%</span>` : ''}
+        </div>
+        <div class="lbody">
+          ${lc.premise ? `<div class="lp"><b>🔹 前提</b><span>${escHtml(lc.premise)}</span></div>` : ''}
+          ${lc.conclusion ? `<div class="lc2"><b>🔺 结论</b><span>${escHtml(lc.conclusion)}</span></div>` : ''}
+        </div>
       </div>`;
     });
-    cnt.innerHTML += `</div>`;
+    cnt.innerHTML += `<div class="sec"><div class="sec-h">🧠 逻辑链 <span class="cnt">${r.logic_chains.length}</span></div><div class="lgrid">${lcGrid}</div></div>`;
   }
 
   // ─── Relations ───
