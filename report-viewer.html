@@ -174,8 +174,8 @@ function loadReport(id) {
 }
 
 function openEntity(name) {
-  // Navigate back to the graph's wiki panel (open in new window)
-  window.open(`kg_entity_relation.html?entity=${encodeURIComponent(name)}`, '_blank');
+  // P228: 跳转回主图谱（index.html），URL 参数 entity=name 自动定位并高亮该节点
+  window.open(`index.html?entity=${encodeURIComponent(name)}`, '_blank');
 }
 
 function renderReport(r) {
@@ -274,16 +274,12 @@ function renderReport(r) {
 
   // ─── Entities ───
   if (r.entities && r.entities.length > 0) {
-    cnt.innerHTML += `<div class="sec"><div class="sec-h">🏛️ 实体提取 <span class="cnt">${r.entities.length}</span></div>
-      <div class="eg">`;
+    let egHTML = '';
     r.entities.forEach(e => {
       const typeBadge = {'ORG':'🏢','PERSON':'👤','PRODUCT':'📦','TECH':'💡','INDUSTRY':'🏭','POLICY':'📋','PLACE':'📍'}
-      cnt.innerHTML += `<div class="ec" onclick="openEntity('${escHtml(e.name)}')">
-        <div class="en">${typeBadge[e.type]||'📌'} ${escHtml(e.name)}</div>
-        <div class="et">${escHtml(e.type)} · ${escHtml(e.industry || '')}</div>
-      </div>`;
+      egHTML += `<div class="ec" onclick="openEntity('${escHtml(e.name)}')"><div class="en">${typeBadge[e.type]||'📌'} ${escHtml(e.name)}</div><div class="et">${escHtml(e.type)} · ${escHtml(e.industry || '')}</div></div>`;
     });
-    cnt.innerHTML += `</div></div>`;
+    cnt.innerHTML += `<div class="sec"><div class="sec-h">🏛️ 实体提取 <span class="cnt">${r.entities.length}</span></div><div class="eg">${egHTML}</div></div>`;
   }
 
   // ─── Indicators ───
@@ -324,18 +320,11 @@ function renderReport(r) {
 
   // ─── Relations ───
   if (r.relations && r.relations.length > 0) {
-    cnt.innerHTML += `<div class="sec"><div class="sec-h">🔗 实体关系 <span class="cnt">${r.relations.length}</span></div>`;
+    let rcHTML = '';
     r.relations.forEach(rel => {
-      cnt.innerHTML += `<div class="rc">
-        <span class="rf" onclick="openEntity('${escHtml(rel.from)}')">${escHtml(rel.from)}</span>
-        <span style="color:var(--fg3);font-size:12px">${rel.type === '供应' ? '→' : rel.type === '竞争' ? '⚔️' : rel.type === '合作' ? '🤝' : '⟷'}</span>
-        <span class="rt">${escHtml(rel.type)}</span>
-        <span style="color:var(--fg3);font-size:12px">⟷</span>
-        <span class="rto" onclick="openEntity('${escHtml(rel.to)}')">${escHtml(rel.to)}</span>
-      </div>
-      ${rel.desc ? `<div style="font-size:12px;color:var(--fg3);padding:2px 14px 6px 14px;margin-top:-2px">${escHtml(rel.desc)}</div>` : ''}`;
+      rcHTML += `<div class="rc"><span class="rf" onclick="openEntity('${escHtml(rel.from)}')">${escHtml(rel.from)}</span><span style="color:var(--fg3);font-size:12px">${rel.type === '供应' ? '→' : rel.type === '竞争' ? '⚔️' : rel.type === '合作' ? '🤝' : '⟷'}</span><span class="rt">${escHtml(rel.type)}</span><span style="color:var(--fg3);font-size:12px">⟷</span><span class="rto" onclick="openEntity('${escHtml(rel.to)}')">${escHtml(rel.to)}</span></div>${rel.desc ? `<div class="rcdesc">${escHtml(rel.desc)}</div>` : ''}`;
     });
-    cnt.innerHTML += `</div>`;
+    cnt.innerHTML += `<div class="sec"><div class="sec-h">🔗 实体关系 <span class="cnt">${r.relations.length}</span></div><div class="rclist">${rcHTML}</div></div>`;
   }
 }
 
