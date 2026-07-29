@@ -284,17 +284,12 @@ function renderReport(r) {
 
   // ─── Indicators ───
   if (r.indicators && r.indicators.length > 0) {
-    cnt.innerHTML += `<div class="sec"><div class="sec-h">📈 指标 <span class="cnt">${r.indicators.length}</span></div>
-      <table class="tbl"><tr><th>指标</th><th>数值</th><th>单位</th><th>关联实体</th></tr>`;
+    let tblHTML = '<table class="tbl"><tr><th>指标</th><th>数值</th><th>单位</th><th>关联实体</th></tr>';
     r.indicators.forEach(ind => {
-      cnt.innerHTML += `<tr>
-        <td>${escHtml(ind.name)}</td>
-        <td class="v">${escHtml(ind.value)}</td>
-        <td>${escHtml(ind.unit || '')}</td>
-        <td>${ind.entity ? `<span class="e" onclick="openEntity('${escHtml(ind.entity)}')">${escHtml(ind.entity)}</span>` : ''}</td>
-      </tr>`;
+      tblHTML += `<tr><td>${escHtml(ind.name)}</td><td class="v">${escHtml(ind.value)}</td><td>${escHtml(ind.unit || '')}</td><td>${ind.entity ? `<span class="e" onclick="openEntity('${escHtml(ind.entity)}')">${escHtml(ind.entity)}</span>` : ''}</td></tr>`;
     });
-    cnt.innerHTML += `</table></div>`;
+    tblHTML += '</table>';
+    cnt.innerHTML += `<div class="sec"><div class="sec-h">📈 指标 <span class="cnt">${r.indicators.length}</span></div>${tblHTML}</div>`;
   }
 
   // ─── Logic Chains (P228 重构) ─── 三段式展开：摘要+前提→结论+置信度徽章
