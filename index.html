@@ -668,43 +668,73 @@
   let currentFocus = null;
   let currentTypeFocus = null;
   let selectedNode = null;
-  // P229 v5 (2026-07-31): enrichment 数据懒加载，避免 57MB JSON 导致页面卡死
-  let enrichmentCache = null;
-  let enrichmentLoaded = false;
-  let enrichmentLoading = false;
 
-  // P229 v5: 懒加载 enrichment_top.json（独立 50MB 文件，首次点击节点时加载）
-  async function loadEnrichment() {
-    if (enrichmentLoading || enrichmentLoaded) return;
-    enrichmentLoading = true;
+  // P229 v6 (2026-07-31): 根本性架构修复 — industry-based enrichment 懒加载
+  // 废弃 enrichment_top.json（单文件 54MB），改用行业分桶文件（industries/*.json，~1-2MB/个）
+  // 前端：点击节点 → 查 entity_industry_index.json → 加载对应行业文件 → 提取 enrichment → 缓存
+  let entityIndustryIndex = null;
+  let industryFileCache = {};  // industry_name → [entities with enrichment]
+  let indexLoading = false;
+  let indexLoaded = false;
+
+  // P229 v6: 加载 entity_industry_index.json（entity_id → industry_name，~50KB）
+  async function loadIndustryIndex() {
+    if (indexLoading || indexLoaded) return;
+    indexLoading = true;
     try {
-      const cacheBuster = '?v=' + Date.now();
-      const res = await fetch('./enrichment_top.json' + cacheBuster, { cache: 'no-store' });
+      const cb = '?v=' + Date.now();
+      const res = await fetch('./entity_industry_index.json' + cb, { cache: 'no-store' });
       if (res.ok) {
-        enrichmentCache = await res.json();
-        enrichmentLoaded = true;
-        console.log('[P229 v5] enrichment_top.json 已加载:', Object.keys(enrichmentCache).length, '条');
+        entityIndustryIndex = await res.json();
+        indexLoaded = true;
+        console.log('[P229 v6] entity_industry_index.json 已加载:', Object.keys(entityIndustryIndex).length, '条');
       }
     } catch (e) {
-      console.warn('[P229 v5] enrichment 加载失败:', e.message);
+      console.warn('[P229 v6] index 加载失败:', e.message);
     } finally {
-      enrichmentLoading = false;
+      indexLoading = false;
     }
   }
 
-  // P229 v5: 为 node 注入 enrichment 数据（从 cache 读取或等待加载）
+  // P229 v6: 懒加载行业文件 + 提取 enrichment
+  async function loadIndustryFile(industry) {
+    if (!industry) return null;
+    if (industryFileCache[industry]) return industryFileCache[industry];
+    try {
+      const cb = '?v=' + Date.now();
+      const res = await fetch(`./industries/${industry}.json` + cb, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        industryFileCache[industry] = data;  // 缓存完整行业数据
+        console.log(`[P229 v6] 行业文件 ${industry}.json 已加载: ${data.length} 实体`);
+        return data;
+      }
+    } catch (e) {
+      console.warn(`[P229 v6] 行业文件 ${industry}.json 加载失败:`, e.message);
+    }
+    return null;
+  }
+
+  // P229 v6: 为 node 注入 enrichment 数据（从 industry 文件提取）
   async function attachEnrichment(node) {
     const eid = node.id;
-    // 等待 enrichment 加载完成
-    if (!enrichmentLoaded) await loadEnrichment();
-    if (!enrichmentCache || !eid) return;
-    const top = enrichmentCache[eid];
-    if (!top) return;
-    node._logicRefs = top.logic || [];
-    node._indicators = top.indicators || [];
-    node._frameworks = top.frameworks || [];
-    node._reports = top.reports || [];
-    // relatedEntities: 若 enrichment_top 不含则从 graphData.links 推导
+    if (!eid) return;
+    // 等待索引加载完成
+    if (!indexLoaded) await loadIndustryIndex();
+    if (!entityIndustryIndex) return;
+    const industry = entityIndustryIndex[eid];
+    if (!industry) return;
+    // 加载行业文件（缓存）
+    const industryData = await loadIndustryFile(industry);
+    if (!industryData) return;
+    // 从行业文件中找到该实体的 enrichment
+    const enriched = industryData.find(e => e.id === eid);
+    if (!enriched) return;
+    node._logicRefs = enriched._logicRefs || [];
+    node._indicators = enriched._indicators || [];
+    node._frameworks = enriched._frameworks || [];
+    node._reports = enriched._reports || [];
+    // relatedEntities: 从 graphData.links 推导
     if (!node._relatedEntities || node._relatedEntities.length === 0) {
       const related = [];
       graphData.links.forEach(l => {
@@ -743,8 +773,8 @@
         edges: rawData.edges.length,
         industries: new Set(rawData.entities.map(e => e.industry)).size
       });
-      // P229 v5: 同步加载 enrichment_top.json（独立文件，不阻塞初始渲染）
-      loadEnrichment();
+      // P229 v6: 同步加载 entity_industry_index.json（~50KB，不阻塞初始渲染）
+      loadIndustryIndex();
       transformData();
       initGraph();
       initControls();
