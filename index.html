@@ -668,6 +668,59 @@
   let currentFocus = null;
   let currentTypeFocus = null;
   let selectedNode = null;
+  // P229 v5 (2026-07-31): enrichment 数据懒加载，避免 57MB JSON 导致页面卡死
+  let enrichmentCache = null;
+  let enrichmentLoaded = false;
+  let enrichmentLoading = false;
+
+  // P229 v5: 懒加载 enrichment_top.json（独立 50MB 文件，首次点击节点时加载）
+  async function loadEnrichment() {
+    if (enrichmentLoading || enrichmentLoaded) return;
+    enrichmentLoading = true;
+    try {
+      const cacheBuster = '?v=' + Date.now();
+      const res = await fetch('./enrichment_top.json' + cacheBuster, { cache: 'no-store' });
+      if (res.ok) {
+        enrichmentCache = await res.json();
+        enrichmentLoaded = true;
+        console.log('[P229 v5] enrichment_top.json 已加载:', Object.keys(enrichmentCache).length, '条');
+      }
+    } catch (e) {
+      console.warn('[P229 v5] enrichment 加载失败:', e.message);
+    } finally {
+      enrichmentLoading = false;
+    }
+  }
+
+  // P229 v5: 为 node 注入 enrichment 数据（从 cache 读取或等待加载）
+  async function attachEnrichment(node) {
+    const eid = node.id;
+    // 等待 enrichment 加载完成
+    if (!enrichmentLoaded) await loadEnrichment();
+    if (!enrichmentCache || !eid) return;
+    const top = enrichmentCache[eid];
+    if (!top) return;
+    node._logicRefs = top.logic || [];
+    node._indicators = top.indicators || [];
+    node._frameworks = top.frameworks || [];
+    node._reports = top.reports || [];
+    // relatedEntities: 若 enrichment_top 不含则从 graphData.links 推导
+    if (!node._relatedEntities || node._relatedEntities.length === 0) {
+      const related = [];
+      graphData.links.forEach(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        if (src === eid && tgt !== eid) {
+          const t = graphData.nodes.find(n => n.id === tgt);
+          if (t) related.push({ id: t.id, name: t.name, type: t.typeLabel || t.type, relations: [l.type || '相关'], relation_count: 1 });
+        } else if (tgt === eid && src !== eid) {
+          const t = graphData.nodes.find(n => n.id === src);
+          if (t) related.push({ id: t.id, name: t.name, type: t.typeLabel || t.type, relations: [l.type || '相关'], relation_count: 1 });
+        }
+      });
+      node._relatedEntities = related;
+    }
+  }
 
   // ===========================
   // 1. 加载数据（从 split 文件：entities.json + relations.json）
@@ -690,6 +743,8 @@
         edges: rawData.edges.length,
         industries: new Set(rawData.entities.map(e => e.industry)).size
       });
+      // P229 v5: 同步加载 enrichment_top.json（独立文件，不阻塞初始渲染）
+      loadEnrichment();
       transformData();
       initGraph();
       initControls();
@@ -1939,8 +1994,23 @@
 window.__showDetailCard = function(node) {
       const card = document.getElementById('detailCard');
       if (!card || !node) return;
-      
-      const typeColor = TYPE_COLORS[node.type] || '#888';
+
+      // P229 v5 (2026-07-31): 异步加载 enrichment 数据后再渲染详情卡
+      if (typeof attachEnrichment === 'function') {
+        (async () => {
+          try {
+            await attachEnrichment(node);
+          } catch (e) {
+            console.warn('[P229 v5] attachEnrichment 失败:', e.message);
+          }
+          __renderDetailCard(node);
+        })();
+      } else {
+        __renderDetailCard(node);
+      }
+    };
+
+    window.__renderDetailCard = function(node) {
       const shape = TYPE_SHAPES[node.type] || 'circle';
       const shapeLabel = {hexagon:'六边形', roundedRect:'圆角矩形', circle:'圆形', rect:'矩形', diamond:'菱形', parallelogram:'平行四边形', triangle:'三角形', star:'星形', ellipse:'椭圆形'}[shape] || shape;
       
