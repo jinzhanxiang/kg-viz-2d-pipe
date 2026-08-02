@@ -585,6 +585,14 @@
       <h4>📄 引用来源</h4>
       <div id="detailSources"></div>
     </div>
+    <div class="detail-section">
+      <h4>🔗 逻辑链</h4>
+      <div id="detailLogic"></div>
+    </div>
+    <div class="detail-section">
+      <h4>📐 框架</h4>
+      <div id="detailFrameworks"></div>
+    </div>
   </div>
 </div>
 
@@ -2471,6 +2479,53 @@ window.__showDetailCard = function(node) {
 
       // 合并 + 输出
       document.getElementById('detailSources').innerHTML = (sourceHtml.concat(sourceHtmlExtra)).join('') || '<div style="color:#888">无引用来源</div>';
+
+      // ===== v58 逻辑链（替换 v34 假逻辑）=====
+      try {
+        if (typeof buildRealLogicContent === 'function') {
+          const logics = buildRealLogicContent(node);
+          let logicHtml = '';
+          if (logics.length === 0) {
+            logicHtml = '<div style="font-size:11px;color:#888;margin:12px 0 4px;">🔗 暂无关联逻辑链</div>';
+          } else {
+            logics.slice(0, 5).forEach(l => {
+              logicHtml += `<div style="font-size:12px;line-height:1.5;padding:4px 8px;margin:3px 0;border-left:2px solid #9b7cff;background:rgba(155,124,255,0.05);border-radius:0 3px 3px 0;"><b style="color:#9b7cff">${escapeHtml(l.stage || '推理')}</b>: ${escapeHtml(l.text || l.premise || '').substring(0, 150)}${(l.text || l.premise || '').length > 150 ? '...' : ''}</div>`;
+            });
+            if (logics.length > 5) {
+              logicHtml += `<div style="font-size:11px;color:#888;margin-top:6px;">... 另有 ${logics.length - 5} 条逻辑链</div>`;
+            }
+          }
+          document.getElementById('detailLogic').innerHTML = logicHtml;
+        }
+      } catch(e) {
+        console.warn('[v58] 逻辑链渲染失败:', e.message);
+        document.getElementById('detailLogic').innerHTML = '<div style="font-size:11px;color:#888">逻辑链加载失败</div>';
+      }
+
+      // ===== v58 框架 =====
+      try {
+        const frameworks = node._frameworks || [];
+        let fwHtml = '';
+        if (frameworks.length === 0) {
+          fwHtml = '<div style="font-size:11px;color:#888;margin:12px 0 4px;">📐 暂无关联框架</div>';
+        } else {
+          const fwTypeColor = {'D1':'#FF6B6B','D2':'#4ec9ff','D3':'#58D68D','D4':'#FFA07A','D5':'#ffd700','D6':'#c792ea'};
+          frameworks.slice(0, 5).forEach(fw => {
+            const fwDim = fw.dimension || fw.framework_type || fw.cate || '';
+            const fwName = fw.name || fw.framework_name || fw.title || '框架';
+            const fwDesc = (fw.description || fw.premise || '').substring(0, 100);
+            const fwColor = fwTypeColor[fwDim] || '#ffd700';
+            fwHtml += `<div style="font-size:12px;line-height:1.5;padding:4px 8px;margin:3px 0;border-left:2px solid ${fwColor};background:rgba(255,215,0,0.05);border-radius:0 3px 3px 0;"><b style="color:${fwColor}">${escapeHtml(fwDim ? fwDim+' ' : '')}${escapeHtml(fwName)}</b>: ${escapeHtml(fwDesc)}${fwDesc.length > 100 ? '...' : ''}</div>`;
+          });
+          if (frameworks.length > 5) {
+            fwHtml += `<div style="font-size:11px;color:#888;margin-top:6px;">... 另有 ${frameworks.length - 5} 个框架</div>`;
+          }
+        }
+        document.getElementById('detailFrameworks').innerHTML = fwHtml;
+      } catch(e) {
+        console.warn('[v58] 框架渲染失败:', e.message);
+        document.getElementById('detailFrameworks').innerHTML = '<div style="font-size:11px;color:#888">框架加载失败</div>';
+      }
 
       // 显示卡片
       const card = document.getElementById('detailCard');
