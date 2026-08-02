@@ -2044,6 +2044,7 @@ window.__showDetailCard = function(node) {
       const shape = TYPE_SHAPES[node.type] || 'circle';
       const shapeLabel = {hexagon:'六边形', roundedRect:'圆角矩形', circle:'圆形', rect:'矩形', diamond:'菱形', parallelogram:'平行四边形', triangle:'三角形', star:'星形', ellipse:'椭圆形'}[shape] || shape;
       
+      const typeColor = TYPE_COLORS[node.type] || '#4ec9ff';
       document.getElementById('detailTitle').innerHTML = `<span style="color:${typeColor}">${escapeHtml(node.name || node.id)}</span>`;
       document.getElementById('detailSubtitle').textContent = `${node.typeLabel || node.type} · 形状: ${shapeLabel}`;
       
@@ -2363,8 +2364,8 @@ window.__showDetailCard = function(node) {
           relatedHtml += `<div style="color:#FFA07A;font-size:11px;margin:4px 0 2px;">▸ ${dir} ${escapeHtml(rtype)}（${list.length}）</div>`;
           list.slice(0, 2).forEach(r => {
             const otherNode = graphData.nodes.find(nn => nn.id === r.other_id);
-            const otherName = otherNode ? (otherNode.name || otherNode.id) : r.other_id;
-            const desc = r.description || '';
+            const otherName = otherNode ? (otherNode.name || otherNode.id || '') : (r.other_id || '');
+            const desc = (r.description || '').toString();
             relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;border-left:2px solid #FFA07A;background:rgba(255,160,122,0.04);"><b style="color:#FFA07A">${escapeHtml(otherName.slice(0, 20))}</b>: ${escapeHtml(desc.slice(0, 80))}${desc.length > 80 ? '...' : ''}</div>`;
           });
         });
@@ -2472,6 +2473,7 @@ window.__showDetailCard = function(node) {
       document.getElementById('detailSources').innerHTML = (sourceHtml.concat(sourceHtmlExtra)).join('') || '<div style="color:#888">无引用来源</div>';
 
       // 显示卡片
+      const card = document.getElementById('detailCard');
       card.classList.add('open');
       console.log('[方向 5] 详情卡已显示:', node.name || node.id);
 
