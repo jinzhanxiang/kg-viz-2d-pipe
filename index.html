@@ -3423,8 +3423,17 @@ window.__showDetailCard = function(node) {
       return visibleNodeIds.has(s) && visibleNodeIds.has(t);
     });
     Graph.graphData({ nodes: filteredNodes, links: filteredLinks });
-    
-    // B6: 应用过滤后重启 d3-force 仿真（让节点重新散开 + 持续动画）
+
+    // P243 Fix (2026-08-12): 设置 _edgeHidden 让 applyEdgeTypeFilter 能同步感知类型过滤
+    // 之前：applyEdgeTypeFilter 只看关系类型，忽略实体类型过滤 → 虚空链接
+    graphData.links.forEach(l => {
+      const s = typeof l.source === 'string' ? l.source : (l.source && l.source.id);
+      const t = typeof l.target === 'string' ? l.target : (l.target && l.target.id);
+      l._edgeHidden = !(visibleNodeIds.has(s) && visibleNodeIds.has(t));
+      l._dimmed = l._edgeHidden;
+    });
+
+    // B6: 应用过滤后重启 d3-force 仿真
     if (window.__d3Sim) {
       window.__d3Sim.nodes(filteredNodes);
       if (filteredLinks.length > 0) {
@@ -3432,12 +3441,13 @@ window.__showDetailCard = function(node) {
       }
       window.__d3Sim.alpha(0.5).restart();
     }
-    
+
     updateFocusDisplay(filteredNodes.length, filteredLinks.length);
     console.log('[B6] type 过滤:', {
       visibleTypes: Array.from(visibleTypes),
       visibleNodes: filteredNodes.length,
-      visibleLinks: filteredLinks.length
+      visibleLinks: filteredLinks.length,
+      _edgeHidden: graphData.links.filter(l => l._edgeHidden).length
     });
   }
 
