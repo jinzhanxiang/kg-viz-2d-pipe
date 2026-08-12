@@ -2325,22 +2325,24 @@ window.__showDetailCard = function(node) {
         return html.join('');
       }
 
-      // P242 Fix (2026-08-12): 删除 "📡 关联节点（按关系类别）" 渲染
-      // 根因: 关联节点（v34）和关联实体（v44）渲染的是同一组 links 数据
-      //   - v34: 按关系类型分组（竞争/对比/供应/客户...），只展示名称+类型，无描述
-      //   - v44: 按 from_id/to_id 聚合，展示名称+类型+描述（含业务说明）
-      // 用户看到的"重复"是同一实体在 v34 的"竞争"和"供应"两个分组各出现一次
-      // 例: 英伟达 在竞争分组(因为英伟达↔某实体 竞争关系) + 在供应分组(因为 英伟达↔某实体 供应关系)
-      // → 但实际关系真实存在，只是重复渲染（v34 分类展示 + v44 列表展示）
-      //
-      // 决策: 删除 v34 关联节点渲染，只保留 v44 关联实体（有 description 的完整版）
-      // 验证: 英诺赛科点击后 "🔗 关联实体" 有 12 条全部带 description，无重复
-
       // P242 Fix (2026-08-12): 删除重复的逻辑链/框架渲染
       // 根因: 同一数据源 _logicRefs 和 _frameworks 在 detailRelated 内（v34+v44 旧逻辑）
       // 和独立卡片（detailLogic/detailFrameworks，v58）两处渲染 → 用户看到重复内容
       // 修复: 逻辑链只保留 detailLogic 独立卡片，框架只保留 detailFrameworks 独立卡片
-      // 下面只保留指标 + 关联实体的渲染（这两个无独立卡片）
+      // 下面保留关系分组（v34 关系类别）+ 指标 + 关联实体
+
+      // ====== v34 P247 v3 恢复关系分组渲染（P242 误删，P247 v3 恢复）======
+      // 关联节点按 9 类关系展示（竞争/对比/上下游/客户/供应/产品/技术/战略联盟/合作/投资）
+      // 这是用户反馈"没有看到关系"的直接原因
+      relatedHtml += '<div style="color:#FFD700;font-weight:bold;margin:14px 0 6px;font-size:14px;">📡 关系网络（按类别）</div>';
+      relationOrder.forEach(g => {
+        const html = renderRelationGroup(g.key, g.emoji, g.color, g.desc, g.sourceKey);
+        if (html) relatedHtml += html;
+      });
+      const totalRels = Object.values(relationGroups).reduce((s,arr) => s + arr.length, 0) + productRelations.length + techRelations.length;
+      if (totalRels > 0) {
+        relatedHtml += `<div style="margin-top:10px;padding:6px 10px;background:rgba(78,201,255,0.08);border-radius:3px;font-size:11px;color:#888;">总计: <b style="color:#4EC9FF">${totalRels}</b> 条关系 · 点击任一项可跳转</div>`;
+      }
 
       // ====== v44 P0-1 : 关联指标（唯一渲染处 — 指标无独立卡片）=======
       const indicators = node._indicators || [];
@@ -2513,25 +2515,55 @@ window.__showDetailCard = function(node) {
       }
 
       // ===== v58 框架 =====
+      // P247 v3: 下方独立修复块统一处理（含 content/steps 字段），此处不再重复渲染
+
+      // ====== v58 框架 P247 v3 修复（2026-08-12）======
+      // 根因: industries/*.json 的 framework schema 字段名:
+      //   name/type/category/industry/steps(字符串化数组)/confidence/content(长文本)/is_core
+      // 旧渲染代码读 fw.dimension/fw.framework_type/fw.description → 全 undefined → 只有名称无内容
+      // 修复: 渲染 fw.content(核心描述) + fw.steps(步骤拆解) + fw.category/fw.confidence
       try {
         const frameworks = node._frameworks || [];
-        let fwHtml = '';
-        if (frameworks.length === 0) {
-          fwHtml = '<div style="font-size:11px;color:#888;margin:12px 0 4px;">📐 暂无关联框架</div>';
-        } else {
-          const fwTypeColor = {'D1':'#FF6B6B','D2':'#4ec9ff','D3':'#58D68D','D4':'#FFA07A','D5':'#ffd700','D6':'#c792ea'};
-          frameworks.slice(0, 5).forEach(fw => {
-            const fwDim = fw.dimension || fw.framework_type || fw.cate || '';
+        if (frameworks.length > 0) {
+          const fwTypeColor = {'core_architecture':'#ffd700','logic':'#9b7cff','risk':'#FF6B6B','opportunity':'#B5CEA8','methodology':'#4ec9ff','critical_reflection':'#C586C0'};
+          let fwHtml = '';
+          frameworks.slice(0, 3).forEach(fw => {
+            const fwColor = fwTypeColor[fw.type || fw.framework_type] || '#ffd700';
             const fwName = fw.name || fw.framework_name || fw.title || '框架';
-            const fwDesc = (fw.description || fw.premise || '').substring(0, 100);
-            const fwColor = fwTypeColor[fwDim] || '#ffd700';
-            fwHtml += `<div style="font-size:12px;line-height:1.5;padding:4px 8px;margin:3px 0;border-left:2px solid ${fwColor};background:rgba(255,215,0,0.05);border-radius:0 3px 3px 0;"><b style="color:${fwColor}">${escapeHtml(fwDim ? fwDim+' ' : '')}${escapeHtml(fwName)}</b>: ${escapeHtml(fwDesc)}${fwDesc.length > 100 ? '...' : ''}</div>`;
+            const fwCategory = fw.category || '';
+            const fwConf = fw.confidence != null ? fw.confidence : null;
+            // content 字段是核心长文本描述
+            let fwContent = fw.content || fw.description || fw.premise || '';
+            if (fwContent.length > 300) fwContent = fwContent.substring(0, 300) + '...';
+            // steps 字段是字符串化的步骤数组，解析展示
+            let stepsText = '';
+            if (fw.steps) {
+              try {
+                const stepsArr = typeof fw.steps === 'string' ? JSON.parse(fw.steps) : fw.steps;
+                if (Array.isArray(stepsArr)) {
+                  stepsText = stepsArr.map((s, i) => `${i+1}. ${s}`).join(' → ');
+                }
+              } catch(e) {
+                stepsText = fw.steps;
+              }
+            }
+            fwHtml += `<div style="font-size:12px;line-height:1.6;padding:8px 10px;margin:6px 0;border-left:3px solid ${fwColor};background:rgba(255,215,0,0.06);border-radius:0 4px 4px 0;">`;
+            fwHtml += `<div style="font-weight:600;color:${fwColor};font-size:13px;margin-bottom:4px;">${escapeHtml(fwName)}${fwCategory ? `<span style="color:#888;font-weight:normal;font-size:11px;margin-left:6px;">[${escapeHtml(fwCategory)}]</span>` : ''}${fwConf !== null ? `<span style="color:#B5CEA8;font-size:11px;margin-left:6px;">置信度:${(fwConf*100).toFixed(0)}%</span>` : ''}</div>`;
+            if (stepsText) {
+              fwHtml += `<div style="color:#9CDCFE;font-size:11px;margin:4px 0 6px;padding:3px 6px;background:rgba(78,201,255,0.06);border-radius:3px;">📋 步骤: ${escapeHtml(stepsText.substring(0, 200))}</div>`;
+            }
+            if (fwContent) {
+              fwHtml += `<div style="color:#ccc;font-size:11px;line-height:1.5;margin-top:4px;">${escapeHtml(fwContent)}</div>`;
+            }
+            fwHtml += `</div>`;
           });
-          if (frameworks.length > 5) {
-            fwHtml += `<div style="font-size:11px;color:#888;margin-top:6px;">... 另有 ${frameworks.length - 5} 个框架</div>`;
+          if (frameworks.length > 3) {
+            fwHtml += `<div style="font-size:11px;color:#888;margin-top:4px;">... 另有 ${frameworks.length - 3} 个框架</div>`;
           }
+          document.getElementById('detailFrameworks').innerHTML = fwHtml;
+        } else {
+          document.getElementById('detailFrameworks').innerHTML = '<div style="font-size:11px;color:#888;margin:12px 0 4px;">📐 暂无关联框架</div>';
         }
-        document.getElementById('detailFrameworks').innerHTML = fwHtml;
       } catch(e) {
         console.warn('[v58] 框架渲染失败:', e.message);
         document.getElementById('detailFrameworks').innerHTML = '<div style="font-size:11px;color:#888">框架加载失败</div>';
