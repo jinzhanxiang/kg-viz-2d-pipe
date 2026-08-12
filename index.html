@@ -3365,6 +3365,10 @@ window.__showDetailCard = function(node) {
         const src = typeof l.source === 'object' ? l.source.id : l.source;
         const tgt = typeof l.target === 'object' ? l.target.id : l.target;
         l._highlighted = node ? (src === node.id || tgt === node.id) : true;
+        // P247 v5 (2026-08-12): 节点未选中/hover 时隐藏关系线条
+        // 优先级: selectedNode（持久状态）> hover（临时）> 全部隐藏
+        const activeNode = selectedNode || node;
+        l._edgeHidden = activeNode ? !(src === activeNode.id || tgt === activeNode.id) : true;
       });
       
       (Graph.refresh ? Graph.refresh() : Graph._rerender ? Graph._rerender() : null);
@@ -3382,10 +3386,19 @@ window.__showDetailCard = function(node) {
     if (typeof window.__showDetailCard === 'function') {
       window.__showDetailCard(node);
     }
+    // P247 v5 (2026-08-12): 点击节点后保持关联边可见（手动更新 _edgeHidden）
+    // 否则 force-graph 在 detailCard 打开后不触发 hover → 所有边被隐藏
+    // 注意: 不再在这里调用 focusIndustry，避免干扰视图（原代码的 if/else 保留）
+    // 仅设置 window.__postFocusNode 作为标记，让 focusIndustry 内部感知
     if (node.industry && node.industry !== currentFocus) {
+      // 给 focusIndustry 注入目标节点 id，让它在重绘时直接设 _edgeHidden
+      window.__postFocusNode = node;
       focusIndustry(node.industry);
+      window.__postFocusNode = null;
     } else {
       updateFocusDisplay();
+      // 同行业内点击：触发一次 hover 空事件以刷新 _edgeHidden（只显示 selectedNode 的边）
+      try { Graph.onNodeHover && Graph.onNodeHover(null); } catch(e) {}
     }
   }
 
@@ -3433,7 +3446,7 @@ window.__showDetailCard = function(node) {
       .map(l => {
         const sId = typeof l.source === 'string' ? l.source : (l.source && l.source.id);
         const tId = typeof l.target === 'string' ? l.target : (l.target && l.target.id);
-        return {
+        const newObj = {
           source: sId,
           target: tId,
           type: l.type,
@@ -3441,6 +3454,14 @@ window.__showDetailCard = function(node) {
           isSourceInIndustry: true,
           isTargetInIndustry: true
         };
+        // P247 v5 (2026-08-12): 点击节点后，focusIndustry 创建的新 link 也设 _edgeHidden
+        if (window.__postFocusNode && window.__postFocusNode.id) {
+          const nid = window.__postFocusNode.id;
+          newObj._edgeHidden = !(sId === nid || tId === nid);
+        } else {
+          newObj._edgeHidden = true;  // 无选中节点时所有边隐藏
+        }
+        return newObj;
       });
     console.log('[V12] 边过滤结果:', {
       total: graphData.links.length,
