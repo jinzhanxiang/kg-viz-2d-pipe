@@ -2145,10 +2145,8 @@ window.__showDetailCard = function(node) {
 
         return ctx;
       }
-      const logicContent = buildRealLogicContent(node);
-      // 渲染在 detailRelated 之下的逻辑区（不占 v34 关系类别区位置）
-      // 在 detailRelated 变量后补一行：逻辑区 HTML（问题：当前逻辑区为关系类别—— 我们把它插到更下的位置）
-      window.__v34LogicContent = logicContent;  // 暂存，后面补充渲染
+      // 逻辑链/框架渲染已合并到下方 v58 独立卡片（L2427-2470）
+      // L2148-2151 旧调用删除：buildRealLogicContent 仅在 detailLogic 渲染时用一次
 
 // v34: 按关系类别展示（重构 v33 5 维度）— 主公要求：竞争/对比/上下游/客户/产品/技术/供应/战略联盟
       // 实测：边 type 18 种（对比766/供应606/上下游566/监管487/合作397/竞争364/客户237/投资149/战略联盟133/技术链70...）
