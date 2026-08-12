@@ -1,5 +1,6 @@
 {
   "version": "2026-07-24.2",
+<<<<<<< HEAD
   "split_at": "2026-08-12T14:13:01.926611",
   "source_file": "/Users/jinzhanxiang/kg-viz/data/kg_data.json",
   "source_size_mb": 728.0,
@@ -10,6 +11,18 @@
     "indicators": 26528,
     "logic_chains": 10854,
     "industries": 64
+=======
+  "split_at": "2026-07-25T22:22:34.234606",
+  "source_file": "/Users/jinzhanxiang/kg-viz/data/kg_data.json",
+  "source_size_mb": 33.3,
+  "counts": {
+    "entities": 2497,
+    "relations": 4166,
+    "frameworks": 429,
+    "indicators": 9081,
+    "logic_chains": 4859,
+    "industries": 21
+>>>>>>> origin/main
   },
   "split_files": {
     "entities": "entities.json",
@@ -20,6 +33,7 @@
     "industries_dir": "industries/"
   },
   "industry_buckets": {
+<<<<<<< HEAD
     "金融": 437,
     "新能源电池行业": 999,
     "人工智能": 643,
@@ -84,6 +98,29 @@
     "证券": 1,
     "科技/互联网": 1,
     "制造-主题研究": 1
+=======
+    "金融": 206,
+    "unknown": 321,
+    "半导体": 332,
+    "新能源电池行业": 423,
+    "消费": 166,
+    "新能源": 136,
+    "新材料": 113,
+    "电力": 50,
+    "人工智能": 176,
+    "大数据": 92,
+    "交通运输": 82,
+    "环保": 60,
+    "新能源汽车": 132,
+    "医疗健康": 58,
+    "高端装备制造": 101,
+    "军工": 17,
+    "房地产": 14,
+    "农业": 11,
+    "汽车零部件": 4,
+    "钢铁": 2,
+    "电力设备": 1
+>>>>>>> origin/main
   },
   "manifest_hints": {
     "load_strategy": "lazy-load by viewport + industry bucket",

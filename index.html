@@ -585,6 +585,7 @@
       <h4>📄 引用来源</h4>
       <div id="detailSources"></div>
     </div>
+<<<<<<< HEAD
     <div class="detail-section">
       <h4>🔗 逻辑链</h4>
       <div id="detailLogic"></div>
@@ -593,6 +594,8 @@
       <h4>📐 框架</h4>
       <div id="detailFrameworks"></div>
     </div>
+=======
+>>>>>>> origin/main
   </div>
 </div>
 
@@ -677,6 +680,7 @@
   let currentTypeFocus = null;
   let selectedNode = null;
 
+<<<<<<< HEAD
   // P229 v6 (2026-07-31): 根本性架构修复 — industry-based enrichment 懒加载
   // 废弃 enrichment_top.json（单文件 54MB），改用行业分桶文件（industries/*.json，~1-2MB/个）
   // 前端：点击节点 → 查 entity_industry_index.json → 加载对应行业文件 → 提取 enrichment → 缓存
@@ -760,6 +764,8 @@
     }
   }
 
+=======
+>>>>>>> origin/main
   // ===========================
   // 1. 加载数据（从 split 文件：entities.json + relations.json）
   // ===========================
@@ -781,8 +787,11 @@
         edges: rawData.edges.length,
         industries: new Set(rawData.entities.map(e => e.industry)).size
       });
+<<<<<<< HEAD
       // P229 v6: 同步加载 entity_industry_index.json（~50KB，不阻塞初始渲染）
       loadIndustryIndex();
+=======
+>>>>>>> origin/main
       transformData();
       initGraph();
       initControls();
@@ -819,7 +828,10 @@
       _indicators: e._indicators || [],  // v44 P0-1 : 关联指标（enrich_v44 PG attach）
       _frameworks: e._frameworks || [],  // v44 P0-2 : 研究框架（6 大维度）
       _relatedEntities: e._relatedEntities || [],  // v44 P0-3 : 关联实体（含 description）
+<<<<<<< HEAD
       _reports: e._reports || [],  // P221 (2026-07-28): 原始研报数据（report_id + title）
+=======
+>>>>>>> origin/main
     }));
 
     const idSet = new Set(nodes.map(n => n.id));
@@ -2032,6 +2044,7 @@
 window.__showDetailCard = function(node) {
       const card = document.getElementById('detailCard');
       if (!card || !node) return;
+<<<<<<< HEAD
 
       // P229 v5 (2026-07-31): 异步加载 enrichment 数据后再渲染详情卡
       if (typeof attachEnrichment === 'function') {
@@ -2053,6 +2066,13 @@ window.__showDetailCard = function(node) {
       const shapeLabel = {hexagon:'六边形', roundedRect:'圆角矩形', circle:'圆形', rect:'矩形', diamond:'菱形', parallelogram:'平行四边形', triangle:'三角形', star:'星形', ellipse:'椭圆形'}[shape] || shape;
       
       const typeColor = TYPE_COLORS[node.type] || '#4ec9ff';
+=======
+      
+      const typeColor = TYPE_COLORS[node.type] || '#888';
+      const shape = TYPE_SHAPES[node.type] || 'circle';
+      const shapeLabel = {hexagon:'六边形', roundedRect:'圆角矩形', circle:'圆形', rect:'矩形', diamond:'菱形', parallelogram:'平行四边形', triangle:'三角形', star:'星形', ellipse:'椭圆形'}[shape] || shape;
+      
+>>>>>>> origin/main
       document.getElementById('detailTitle').innerHTML = `<span style="color:${typeColor}">${escapeHtml(node.name || node.id)}</span>`;
       document.getElementById('detailSubtitle').textContent = `${node.typeLabel || node.type} · 形状: ${shapeLabel}`;
       
@@ -2145,8 +2165,15 @@ window.__showDetailCard = function(node) {
 
         return ctx;
       }
+<<<<<<< HEAD
       // 逻辑链/框架渲染已合并到下方 v58 独立卡片（L2427-2470）
       // L2148-2151 旧调用删除：buildRealLogicContent 仅在 detailLogic 渲染时用一次
+=======
+      const logicContent = buildRealLogicContent(node);
+      // 渲染在 detailRelated 之下的逻辑区（不占 v34 关系类别区位置）
+      // 在 detailRelated 变量后补一行：逻辑区 HTML（问题：当前逻辑区为关系类别—— 我们把它插到更下的位置）
+      window.__v34LogicContent = logicContent;  // 暂存，后面补充渲染
+>>>>>>> origin/main
 
 // v34: 按关系类别展示（重构 v33 5 维度）— 主公要求：竞争/对比/上下游/客户/产品/技术/供应/战略联盟
       // 实测：边 type 18 种（对比766/供应606/上下游566/监管487/合作397/竞争364/客户237/投资149/战略联盟133/技术链70...）
@@ -2188,6 +2215,7 @@ window.__showDetailCard = function(node) {
         if (other.type === 'TECH') techRelations.push({ node: other, edgeType: t, dir: sId === node.id ? 'out' : 'in' });
       });
 
+<<<<<<< HEAD
       // ── 去重：双向关系合并（如 英伟达→AMD 竞争 + AMD→英伟达 竞争 → 英伟达↔AMD 竞争）──
       Object.keys(relationGroups).forEach(key => {
         const list = relationGroups[key];
@@ -2216,6 +2244,8 @@ window.__showDetailCard = function(node) {
         relationGroups[key] = relationGroups[key].filter(item => !productTechIds.has(item.node.id));
       });
 
+=======
+>>>>>>> origin/main
       // 2. 渲染：按主公要求顺序
       const relationOrder = [
         { key: '竞争', emoji: '🔴', color: '#FF6B6B', desc: '与该节点存在业务/市场竞争关系' },
@@ -2241,7 +2271,11 @@ window.__showDetailCard = function(node) {
         // 限制每个类别最多 10 个
         list.slice(0, 10).forEach(item => {
           const n = item.node;
+<<<<<<< HEAD
           const dir = item.dir === 'out' ? '→' : item.dir === 'both' ? '↔' : '←';
+=======
+          const dir = item.dir === 'out' ? '→' : '←';
+>>>>>>> origin/main
           const nc = TYPE_COLORS[n.type] || '#888';
           const edgeTypeLabel = item.edgeType && item.edgeType !== groupKey ? `<span style="color:#666;font-size:11px;"> [${escapeHtml(item.edgeType)}]</span>` : '';
           html.push(`<div class="detail-relation-item" data-id="${escapeHtml(n.id)}" style="font-size:13px;color:#ccc;line-height:1.8;padding:5px 10px;cursor:pointer;border-left:3px solid ${color};margin:3px 0;border-radius:4px;background:rgba(255,255,255,0.02);" onmouseover="this.style.background='${color}25';this.style.paddingLeft='14px'" onmouseout="this.style.background='rgba(255,255,255,0.02)';this.style.paddingLeft='10px'">
@@ -2255,6 +2289,7 @@ window.__showDetailCard = function(node) {
         return html.join('');
       }
 
+<<<<<<< HEAD
       // P242 Fix (2026-08-12): 删除 "📡 关联节点（按关系类别）" 渲染
       // 根因: 关联节点（v34）和关联实体（v44）渲染的是同一组 links 数据
       //   - v34: 按关系类型分组（竞争/对比/供应/客户...），只展示名称+类型，无描述
@@ -2273,6 +2308,34 @@ window.__showDetailCard = function(node) {
       // 下面只保留指标 + 关联实体的渲染（这两个无独立卡片）
 
       // ====== v44 P0-1 : 关联指标（唯一渲染处 — 指标无独立卡片）=======
+=======
+      let relatedHtml = '<div style="color:#FFD700;font-weight:bold;margin:8px 0 6px;font-size:14px;">📡 关联节点（按关系类别）</div>';
+      relationOrder.forEach(g => {
+        const html = renderRelationGroup(g.key, g.emoji, g.color, g.desc, g.sourceKey);
+        if (html) relatedHtml += html;
+      });
+
+      // 总计信息
+      const totalRelations = Object.values(relationGroups).reduce((s,arr) => s + arr.length, 0) + productRelations.length + techRelations.length;
+      relatedHtml += `<div style="margin-top:10px;padding:6px 10px;background:rgba(78,201,255,0.08);border-radius:3px;font-size:11px;color:#888;">总计: <b style="color:#4EC9FF">${totalRelations}</b> 个关联关系 · 点击任一项可跳转到该节点</div>`;
+
+      // v34: 逻辑内容区（主公反馈“逻辑=公司简介”—— 需重构成三段论真逻辑）
+      // 从 window.__v34LogicContent 读出三段论
+      const lc = window.__v34LogicContent || [];
+      if (lc.length > 0) {
+        const stageColors = { '起因': '#FFD700', '传导': '#4EC9FF', '结果': '#FF6B6B' };
+        const stageIcons = { '起因': '⚡', '传导': '⚡', '结果': '⚡' };
+        relatedHtml += '<div style="color:#C586C0;font-weight:bold;margin:14px 0 6px;font-size:13px;">🧠 逻辑（三段论）</div>';
+        lc.forEach((s, i) => {
+          const c = stageColors[s.stage] || '#888';
+          relatedHtml += `<div style="font-size:12px;line-height:1.7;color:#ccc;margin:4px 0;padding:6px 8px;background:${c}08;border-left:3px solid ${c};border-radius:3px;">
+            <b style="color:${c}">[${escapeHtml(s.stage)}]</b> ${escapeHtml(s.text)}
+          </div>`;
+        });
+      }
+
+      // ====== v44 P0-1 : 关联指标 ======
+>>>>>>> origin/main
       const indicators = node._indicators || [];
       if (indicators.length > 0) {
         relatedHtml += '<div style="color:#B5CEA8;font-weight:bold;margin:14px 0 6px;font-size:13px;">📊 关联指标 <span style="color:#888;font-weight:normal;">×' + indicators.length + '</span></div>';
@@ -2293,9 +2356,65 @@ window.__showDetailCard = function(node) {
         });
       }
 
+<<<<<<< HEAD
       // P242 Fix (2026-08-12): 研究框架删除重复渲染（框架数据在 detailFrameworks 独立卡片中唯一展示）
       // 原 v44 P0-2 在 detailRelated 内渲染框架 → 与 detailFrameworks 重复
       // 现在 detailRelated 只保留 关联指标 + 关联实体
+=======
+      // ====== v44 P0-2 : 研究框架 ======
+      const frameworks = node._frameworks || [];
+      if (frameworks.length > 0) {
+        relatedHtml += '<div style="color:#DDA0DD;font-weight:bold;margin:14px 0 6px;font-size:13px;">🔬 研究框架 <span style="color:#888;font-weight:normal;">×' + frameworks.length + '</span></div>';
+        const fwByType = {};
+        frameworks.forEach(fw => {
+          // P197 Fix (2026-07-24): data.json 用 fw.type（不是 framework_type）
+          const t = fw.type || fw.framework_type || '其他';
+          if (!fwByType[t]) fwByType[t] = [];
+          fwByType[t].push(fw);
+        });
+        Object.entries(fwByType).slice(0, 4).forEach(([ftype, list]) => {
+          // P197 Fix: 扩展 typeLabel 字典（基于实测 83591 个 framework 的 type 分布）
+          const typeLabel = {
+            core_architecture:'核心架构',
+            logic:'逻辑论证',
+            risk:'风险评估',
+            opportunity:'机遇识别',
+            methodology:'方法论',
+            critical_reflection:'质疑反思',
+            valuation:'估值分析',
+            policy:'政策分析',
+            trend:'趋势分析',
+            comparison:'对比分析'
+          }[ftype] || ftype;
+          relatedHtml += `<div style="color:#DDA0DD;font-size:11px;margin:6px 0 4px;font-weight:bold;">▸ ${escapeHtml(typeLabel)}（${list.length}）</div>`;
+          list.slice(0, 3).forEach(fw => {
+            const conf = fw.confidence ? ` <span style="color:#888;">[${(fw.confidence*100).toFixed(0)}%]</span>` : '';
+            // P197 Fix (2026-07-24): data.json 用 fw.name / fw.industry / fw.category
+            // P199 Fix (2026-07-24 16:58): 双 schema 兼容 — 部分旧版 enrichment 用 framework_name / apply_industry
+            const fwName = fw.name || fw.framework_name || '未命名框架';
+            const fwIndustry = fw.industry || fw.apply_industry || '';
+            const fwCategory = fw.category || fw.apply_scenario || '';
+            const ind = fwIndustry ? ` <span style="color:#B5CEA8;font-size:10px;">[${escapeHtml(fwIndustry)}]</span>` : '';
+            const cat = fwCategory ? ` <span style="color:#9CDCFE;font-size:10px;">[${escapeHtml(fwCategory)}]</span>` : '';
+            // 名称 + 元数据
+            relatedHtml += `<div style="font-size:13px;color:#FFD700;font-weight:600;line-height:1.5;padding:4px 8px;margin:4px 0 2px;background:rgba(255,215,0,0.06);border-radius:3px;">📐 ${escapeHtml(fwName)}${conf}${cat}${ind}</div>`;
+            // content（含完整描述/核心维度/步骤）— data.json 的 fw.content 包含全部
+            if (fw.content) {
+              let contentText = fw.content;
+              // 如果 content 太长，提取关键部分
+              if (contentText.length > 600) {
+                contentText = contentText.slice(0, 600) + '...';
+              }
+              relatedHtml += `<div style="font-size:11px;color:#ccc;line-height:1.7;padding:4px 16px 6px;margin:2px 0 4px;background:rgba(255,255,255,0.02);border-left:2px solid #DDA0DD;border-radius:3px;">${escapeHtml(contentText).replace(/\n/g, '<br>')}</div>`;
+            }
+            // steps（如果存在）
+            if (fw.steps && Array.isArray(fw.steps) && fw.steps.length > 0) {
+              relatedHtml += `<div style="font-size:10px;color:#888;padding:2px 16px;margin:1px 0;"><b>步骤：</b>${fw.steps.map((s, i) => `${i+1}.${escapeHtml(typeof s === 'string' ? s : (s.name || JSON.stringify(s)).slice(0, 30))}`).join('；').slice(0, 200)}</div>`;
+            }
+          });
+        });
+      }
+>>>>>>> origin/main
 
       // ====== v44 P0-3 : 关联实体（含 description） ======
       const relatedEnts = node._relatedEntities || [];
@@ -2312,8 +2431,13 @@ window.__showDetailCard = function(node) {
           relatedHtml += `<div style="color:#FFA07A;font-size:11px;margin:4px 0 2px;">▸ ${dir} ${escapeHtml(rtype)}（${list.length}）</div>`;
           list.slice(0, 2).forEach(r => {
             const otherNode = graphData.nodes.find(nn => nn.id === r.other_id);
+<<<<<<< HEAD
             const otherName = otherNode ? (otherNode.name || otherNode.id || '') : (r.other_id || '');
             const desc = (r.description || '').toString();
+=======
+            const otherName = otherNode ? (otherNode.name || otherNode.id) : r.other_id;
+            const desc = r.description || '';
+>>>>>>> origin/main
             relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;border-left:2px solid #FFA07A;background:rgba(255,160,122,0.04);"><b style="color:#FFA07A">${escapeHtml(otherName.slice(0, 20))}</b>: ${escapeHtml(desc.slice(0, 80))}${desc.length > 80 ? '...' : ''}</div>`;
           });
         });
@@ -2385,6 +2509,7 @@ window.__showDetailCard = function(node) {
       const sourceHtmlExtra = [];
       sourceHtmlExtra.push(`<div style="font-size:12px;color:#ccc;line-height:1.6;">关联边数: <b style="color:#FFA07A">${indeg}</b> <span style="color:#888">(入+出 = 跨领域影响)</span></div>`);
 
+<<<<<<< HEAD
       // P221 (2026-07-28): 原始研报 — 从 node._reports 渲染可点击链接到 report-viewer
       const reports = node._reports || [];
       if (reports && reports.length > 0) {
@@ -2469,6 +2594,12 @@ window.__showDetailCard = function(node) {
 
       // 显示卡片
       const card = document.getElementById('detailCard');
+=======
+      // 合并 + 输出
+      document.getElementById('detailSources').innerHTML = (sourceHtml.concat(sourceHtmlExtra)).join('') || '<div style="color:#888">无引用来源</div>';
+
+      // 显示卡片
+>>>>>>> origin/main
       card.classList.add('open');
       console.log('[方向 5] 详情卡已显示:', node.name || node.id);
 
@@ -3423,6 +3554,7 @@ window.__showDetailCard = function(node) {
       return visibleNodeIds.has(s) && visibleNodeIds.has(t);
     });
     Graph.graphData({ nodes: filteredNodes, links: filteredLinks });
+<<<<<<< HEAD
 
     // P243 Fix (2026-08-12): 设置 _edgeHidden 让 applyEdgeTypeFilter 能同步感知类型过滤
     // 之前：applyEdgeTypeFilter 只看关系类型，忽略实体类型过滤 → 虚空链接
@@ -3434,6 +3566,10 @@ window.__showDetailCard = function(node) {
     });
 
     // B6: 应用过滤后重启 d3-force 仿真
+=======
+    
+    // B6: 应用过滤后重启 d3-force 仿真（让节点重新散开 + 持续动画）
+>>>>>>> origin/main
     if (window.__d3Sim) {
       window.__d3Sim.nodes(filteredNodes);
       if (filteredLinks.length > 0) {
@@ -3441,13 +3577,21 @@ window.__showDetailCard = function(node) {
       }
       window.__d3Sim.alpha(0.5).restart();
     }
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> origin/main
     updateFocusDisplay(filteredNodes.length, filteredLinks.length);
     console.log('[B6] type 过滤:', {
       visibleTypes: Array.from(visibleTypes),
       visibleNodes: filteredNodes.length,
+<<<<<<< HEAD
       visibleLinks: filteredLinks.length,
       _edgeHidden: graphData.links.filter(l => l._edgeHidden).length
+=======
+      visibleLinks: filteredLinks.length
+>>>>>>> origin/main
     });
   }
 
@@ -3723,6 +3867,7 @@ window.__showDetailCard = function(node) {
     console.error('[V5] 加载失败:', err);
     document.getElementById('loader').innerHTML = `<div style="color:#f87171">❌ 加载失败: ${err.message}</div>`;
   });
+<<<<<<< HEAD
 
   // ===========================
   // P228: URL 参数 entity=xxx — 从报告页跳转自动定位+弹出详情卡
@@ -3756,6 +3901,8 @@ window.__showDetailCard = function(node) {
     }, 1500);
   }
   handleEntityParam();
+=======
+>>>>>>> origin/main
 </script>
 </body>
 </html>
