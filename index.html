@@ -2048,7 +2048,11 @@ window.__showDetailCard = function(node) {
       }
     };
 
+    // P229 v6: 节点详情卡
+
     window.__renderDetailCard = function(node) {
+      let relatedHtml = '';  // P246 修复 (2026-08-12): P242 删除 v34 关联节点渲染时误删了 let 声明
+      // 导致 relatedHtml 从未声明，第一个 += 就抛 ReferenceError，详情卡在 add('open') 前崩溃
       const shape = TYPE_SHAPES[node.type] || 'circle';
       const shapeLabel = {hexagon:'六边形', roundedRect:'圆角矩形', circle:'圆形', rect:'矩形', diamond:'菱形', parallelogram:'平行四边形', triangle:'三角形', star:'星形', ellipse:'椭圆形'}[shape] || shape;
       
