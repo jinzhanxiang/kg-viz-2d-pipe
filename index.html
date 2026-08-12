@@ -2257,32 +2257,24 @@ window.__showDetailCard = function(node) {
         return html.join('');
       }
 
-      let relatedHtml = '<div style="color:#FFD700;font-weight:bold;margin:8px 0 6px;font-size:14px;">📡 关联节点（按关系类别）</div>';
-      relationOrder.forEach(g => {
-        const html = renderRelationGroup(g.key, g.emoji, g.color, g.desc, g.sourceKey);
-        if (html) relatedHtml += html;
-      });
+      // P242 Fix (2026-08-12): 删除 "📡 关联节点（按关系类别）" 渲染
+      // 根因: 关联节点（v34）和关联实体（v44）渲染的是同一组 links 数据
+      //   - v34: 按关系类型分组（竞争/对比/供应/客户...），只展示名称+类型，无描述
+      //   - v44: 按 from_id/to_id 聚合，展示名称+类型+描述（含业务说明）
+      // 用户看到的"重复"是同一实体在 v34 的"竞争"和"供应"两个分组各出现一次
+      // 例: 英伟达 在竞争分组(因为英伟达↔某实体 竞争关系) + 在供应分组(因为 英伟达↔某实体 供应关系)
+      // → 但实际关系真实存在，只是重复渲染（v34 分类展示 + v44 列表展示）
+      //
+      // 决策: 删除 v34 关联节点渲染，只保留 v44 关联实体（有 description 的完整版）
+      // 验证: 英诺赛科点击后 "🔗 关联实体" 有 12 条全部带 description，无重复
 
-      // 总计信息
-      const totalRelations = Object.values(relationGroups).reduce((s,arr) => s + arr.length, 0) + productRelations.length + techRelations.length;
-      relatedHtml += `<div style="margin-top:10px;padding:6px 10px;background:rgba(78,201,255,0.08);border-radius:3px;font-size:11px;color:#888;">总计: <b style="color:#4EC9FF">${totalRelations}</b> 个关联关系 · 点击任一项可跳转到该节点</div>`;
+      // P242 Fix (2026-08-12): 删除重复的逻辑链/框架渲染
+      // 根因: 同一数据源 _logicRefs 和 _frameworks 在 detailRelated 内（v34+v44 旧逻辑）
+      // 和独立卡片（detailLogic/detailFrameworks，v58）两处渲染 → 用户看到重复内容
+      // 修复: 逻辑链只保留 detailLogic 独立卡片，框架只保留 detailFrameworks 独立卡片
+      // 下面只保留指标 + 关联实体的渲染（这两个无独立卡片）
 
-      // v34: 逻辑内容区（主公反馈“逻辑=公司简介”—— 需重构成三段论真逻辑）
-      // 从 window.__v34LogicContent 读出三段论
-      const lc = window.__v34LogicContent || [];
-      if (lc.length > 0) {
-        const stageColors = { '起因': '#FFD700', '传导': '#4EC9FF', '结果': '#FF6B6B' };
-        const stageIcons = { '起因': '⚡', '传导': '⚡', '结果': '⚡' };
-        relatedHtml += '<div style="color:#C586C0;font-weight:bold;margin:14px 0 6px;font-size:13px;">🧠 逻辑（三段论）</div>';
-        lc.forEach((s, i) => {
-          const c = stageColors[s.stage] || '#888';
-          relatedHtml += `<div style="font-size:12px;line-height:1.7;color:#ccc;margin:4px 0;padding:6px 8px;background:${c}08;border-left:3px solid ${c};border-radius:3px;">
-            <b style="color:${c}">[${escapeHtml(s.stage)}]</b> ${escapeHtml(s.text)}
-          </div>`;
-        });
-      }
-
-      // ====== v44 P0-1 : 关联指标 ======
+      // ====== v44 P0-1 : 关联指标（唯一渲染处 — 指标无独立卡片）=======
       const indicators = node._indicators || [];
       if (indicators.length > 0) {
         relatedHtml += '<div style="color:#B5CEA8;font-weight:bold;margin:14px 0 6px;font-size:13px;">📊 关联指标 <span style="color:#888;font-weight:normal;">×' + indicators.length + '</span></div>';
@@ -2303,59 +2295,9 @@ window.__showDetailCard = function(node) {
         });
       }
 
-      // ====== v44 P0-2 : 研究框架 ======
-      const frameworks = node._frameworks || [];
-      if (frameworks.length > 0) {
-        relatedHtml += '<div style="color:#DDA0DD;font-weight:bold;margin:14px 0 6px;font-size:13px;">🔬 研究框架 <span style="color:#888;font-weight:normal;">×' + frameworks.length + '</span></div>';
-        const fwByType = {};
-        frameworks.forEach(fw => {
-          // P197 Fix (2026-07-24): data.json 用 fw.type（不是 framework_type）
-          const t = fw.type || fw.framework_type || '其他';
-          if (!fwByType[t]) fwByType[t] = [];
-          fwByType[t].push(fw);
-        });
-        Object.entries(fwByType).slice(0, 4).forEach(([ftype, list]) => {
-          // P197 Fix: 扩展 typeLabel 字典（基于实测 83591 个 framework 的 type 分布）
-          const typeLabel = {
-            core_architecture:'核心架构',
-            logic:'逻辑论证',
-            risk:'风险评估',
-            opportunity:'机遇识别',
-            methodology:'方法论',
-            critical_reflection:'质疑反思',
-            valuation:'估值分析',
-            policy:'政策分析',
-            trend:'趋势分析',
-            comparison:'对比分析'
-          }[ftype] || ftype;
-          relatedHtml += `<div style="color:#DDA0DD;font-size:11px;margin:6px 0 4px;font-weight:bold;">▸ ${escapeHtml(typeLabel)}（${list.length}）</div>`;
-          list.slice(0, 3).forEach(fw => {
-            const conf = fw.confidence ? ` <span style="color:#888;">[${(fw.confidence*100).toFixed(0)}%]</span>` : '';
-            // P197 Fix (2026-07-24): data.json 用 fw.name / fw.industry / fw.category
-            // P199 Fix (2026-07-24 16:58): 双 schema 兼容 — 部分旧版 enrichment 用 framework_name / apply_industry
-            const fwName = fw.name || fw.framework_name || '未命名框架';
-            const fwIndustry = fw.industry || fw.apply_industry || '';
-            const fwCategory = fw.category || fw.apply_scenario || '';
-            const ind = fwIndustry ? ` <span style="color:#B5CEA8;font-size:10px;">[${escapeHtml(fwIndustry)}]</span>` : '';
-            const cat = fwCategory ? ` <span style="color:#9CDCFE;font-size:10px;">[${escapeHtml(fwCategory)}]</span>` : '';
-            // 名称 + 元数据
-            relatedHtml += `<div style="font-size:13px;color:#FFD700;font-weight:600;line-height:1.5;padding:4px 8px;margin:4px 0 2px;background:rgba(255,215,0,0.06);border-radius:3px;">📐 ${escapeHtml(fwName)}${conf}${cat}${ind}</div>`;
-            // content（含完整描述/核心维度/步骤）— data.json 的 fw.content 包含全部
-            if (fw.content) {
-              let contentText = fw.content;
-              // 如果 content 太长，提取关键部分
-              if (contentText.length > 600) {
-                contentText = contentText.slice(0, 600) + '...';
-              }
-              relatedHtml += `<div style="font-size:11px;color:#ccc;line-height:1.7;padding:4px 16px 6px;margin:2px 0 4px;background:rgba(255,255,255,0.02);border-left:2px solid #DDA0DD;border-radius:3px;">${escapeHtml(contentText).replace(/\n/g, '<br>')}</div>`;
-            }
-            // steps（如果存在）
-            if (fw.steps && Array.isArray(fw.steps) && fw.steps.length > 0) {
-              relatedHtml += `<div style="font-size:10px;color:#888;padding:2px 16px;margin:1px 0;"><b>步骤：</b>${fw.steps.map((s, i) => `${i+1}.${escapeHtml(typeof s === 'string' ? s : (s.name || JSON.stringify(s)).slice(0, 30))}`).join('；').slice(0, 200)}</div>`;
-            }
-          });
-        });
-      }
+      // P242 Fix (2026-08-12): 研究框架删除重复渲染（框架数据在 detailFrameworks 独立卡片中唯一展示）
+      // 原 v44 P0-2 在 detailRelated 内渲染框架 → 与 detailFrameworks 重复
+      // 现在 detailRelated 只保留 关联指标 + 关联实体
 
       // ====== v44 P0-3 : 关联实体（含 description） ======
       const relatedEnts = node._relatedEntities || [];
