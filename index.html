@@ -582,16 +582,16 @@
       <div id="detailRelated"></div>
     </div>
     <div class="detail-section">
-      <h4>📄 引用来源</h4>
-      <div id="detailSources"></div>
-    </div>
-    <div class="detail-section">
       <h4>🔗 逻辑链</h4>
       <div id="detailLogic"></div>
     </div>
     <div class="detail-section">
       <h4>📐 框架</h4>
       <div id="detailFrameworks"></div>
+    </div>
+    <div class="detail-section">
+      <h4>📄 引用来源</h4>
+      <div id="detailSources"></div>
     </div>
   </div>
 </div>
@@ -2331,64 +2331,99 @@ window.__showDetailCard = function(node) {
       // 修复: 逻辑链只保留 detailLogic 独立卡片，框架只保留 detailFrameworks 独立卡片
       // 下面保留关系分组（v34 关系类别）+ 指标 + 关联实体
 
-      // ====== v34 P247 v3 恢复关系分组渲染（P242 误删，P247 v3 恢复）======
-      // 关联节点按 9 类关系展示（竞争/对比/上下游/客户/供应/产品/技术/战略联盟/合作/投资）
-      // 这是用户反馈"没有看到关系"的直接原因
-      relatedHtml += '<div style="color:#FFD700;font-weight:bold;margin:14px 0 6px;font-size:14px;">📡 关系网络（按类别）</div>';
-      relationOrder.forEach(g => {
-        const html = renderRelationGroup(g.key, g.emoji, g.color, g.desc, g.sourceKey);
-        if (html) relatedHtml += html;
+      // ====== P247 v4 (2026-08-12): 合并关系网络 + 关联实体（去重）======
+      // 用户反馈: 关联指标和关联实体重复（同一实体在 关系网络 和 关联实体 各出现一次）
+      // 修复: 以 _relatedEntities 为主（含 description），relationGroups 补充（无 description 的邻居）
+      // 合并去重: 按 entityId 构建 Map，取描述最丰富版本
+      const entityMap = new Map(); // entityId → { name, type, relations: Set, description, dir }
+      // 1. 从 _relatedEntities 注入（优先级高，含 description）
+      (node._relatedEntities || []).forEach(r => {
+        const otherNode = graphData.nodes.find(nn => nn.id === r.other_id);
+        const name = otherNode ? otherNode.name || otherNode.id : r.other_id;
+        const key = r.other_id || name;
+        if (!entityMap.has(key)) {
+          entityMap.set(key, { id: r.other_id || name, name, type: otherNode?.type, relations: new Set(), description: '', dir: r.dir });
+        }
+        const entry = entityMap.get(key);
+        entry.relations.add(r.relation_type || '相关');
+        if (r.description && r.description.length > entry.description.length) entry.description = r.description;
+        if (r.dir) entry.dir = r.dir;
       });
-      const totalRels = Object.values(relationGroups).reduce((s,arr) => s + arr.length, 0) + productRelations.length + techRelations.length;
-      if (totalRels > 0) {
-        relatedHtml += `<div style="margin-top:10px;padding:6px 10px;background:rgba(78,201,255,0.08);border-radius:3px;font-size:11px;color:#888;">总计: <b style="color:#4EC9FF">${totalRels}</b> 条关系 · 点击任一项可跳转</div>`;
+      // 2. 从 relationGroups 补充（无 description 的邻居）
+      const getGroupItems = (sourceKey) => {
+        if (sourceKey === 'productRelations') return productRelations;
+        if (sourceKey === 'techRelations') return techRelations;
+        return relationGroups[sourceKey] || [];
+      };
+      relationOrder.forEach(g => {
+        getGroupItems(g.sourceKey || g.key).forEach(item => {
+          const n = item.node;
+          const key = n.id;
+          if (!entityMap.has(key)) {
+            entityMap.set(key, { id: n.id, name: n.name || n.id, type: n.type, relations: new Set(), description: '', dir: item.dir });
+          }
+          const entry = entityMap.get(key);
+          entry.relations.add(item.edgeType || g.key);
+          if (item.dir && !entry.dir) entry.dir = item.dir;
+        });
+      });
+      // 3. 渲染合并且带跳转链接
+      if (entityMap.size > 0) {
+        // 按关系类型分组
+        const relByType = {};
+        entityMap.forEach((entry) => {
+          entry.relations.forEach(rel => {
+            if (!relByType[rel]) relByType[rel] = [];
+            relByType[rel].push(entry);
+          });
+        });
+        relatedHtml += '<div style="color:#FFA07A;font-weight:bold;margin:14px 0 6px;font-size:14px;">🔗 关联实体 <span style="color:#888;font-weight:normal;">×' + entityMap.size + '</span></div>';
+        // 按常见关系类型排序
+        const relOrder = ['竞争','对比','上下游','客户','供应','产品','技术','战略联盟','合作','投资','监管','相关'];
+        Object.entries(relByType)
+          .sort((a,b) => (relOrder.indexOf(a[0]) !== -1 ? relOrder.indexOf(a[0]) : 99) - (relOrder.indexOf(b[0]) !== -1 ? relOrder.indexOf(b[0]) : 99))
+          .slice(0, 6).forEach(([rtype, list]) => {
+          const dir = list[0] && list[0].dir === 'out' ? '→' : '←';
+          const nc = list[0]?.type ? (TYPE_COLORS[list[0].type] || '#888') : '#888';
+          relatedHtml += `<div style="color:${nc};font-size:11px;margin:6px 0 3px;font-weight:bold;">▸ ${dir} ${escapeHtml(rtype)}（${list.length}）</div>`;
+          list.slice(0, 3).forEach(entry => {
+            const desc = (entry.description || '').toString();
+            const nc2 = entry.type ? (TYPE_COLORS[entry.type] || '#888') : '#888';
+            relatedHtml += `<div class="detail-relation-item" data-id="${escapeHtml(entry.id)}" style="font-size:12px;color:#ccc;line-height:1.6;padding:4px 8px;margin:2px 0;border-left:2px solid ${nc2};background:rgba(255,160,122,0.04);cursor:pointer;">`;
+            relatedHtml += `<b style="color:${nc2}">${escapeHtml(entry.name.slice(0, 24))}</b>`;
+            if (desc) relatedHtml += `: ${escapeHtml(desc.slice(0, 100))}${desc.length > 100 ? '...' : ''}`;
+            relatedHtml += `</div>`;
+          });
+          if (list.length > 3) {
+            relatedHtml += `<div style="font-size:11px;color:#888;padding:1px 8px;">... 还有 ${list.length - 3} 个</div>`;
+          }
+        });
+        if (Object.keys(relByType).length > 6) {
+          relatedHtml += `<div style="font-size:11px;color:#888;margin-top:4px;">... 另有 ${Object.keys(relByType).length - 6} 个关系类型</div>`;
+        }
       }
-
-      // ====== v44 P0-1 : 关联指标（唯一渲染处 — 指标无独立卡片）=======
+      // ====== v44 P0-1 : 关联指标（合并到关联实体下方）======
       const indicators = node._indicators || [];
       if (indicators.length > 0) {
-        relatedHtml += '<div style="color:#B5CEA8;font-weight:bold;margin:14px 0 6px;font-size:13px;">📊 关联指标 <span style="color:#888;font-weight:normal;">×' + indicators.length + '</span></div>';
         const indByType = {};
         indicators.forEach(ind => {
           const t = ind.indicator_type || '其他';
           if (!indByType[t]) indByType[t] = [];
           indByType[t].push(ind);
         });
+        let indHtml = '';
         Object.entries(indByType).slice(0, 3).forEach(([itype, list]) => {
-          relatedHtml += `<div style="color:#9CDCFE;font-size:11px;margin:4px 0 2px;">▸ ${escapeHtml(itype)}（${list.length}）</div>`;
+          indHtml += `<div style="color:#9CDCFE;font-size:11px;margin:4px 0 2px;">▸ ${escapeHtml(itype)}（${list.length}）</div>`;
           list.slice(0, 4).forEach(ind => {
             const unit = ind.unit ? `<span style="color:#888;"> ${escapeHtml(ind.unit)}</span>` : '';
             const isCore = ind.is_core ? '⭐' : '·';
-            // P197 Fix (2026-07-24): data.json 用 ind.name（不是 indicator_name）
-            relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;">${isCore} ${escapeHtml(ind.name.slice(0, 40))}${unit}</div>`;
+            indHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;">${isCore} ${escapeHtml(ind.name.slice(0, 40))}${unit}</div>`;
           });
         });
-      }
-
-      // P242 Fix (2026-08-12): 研究框架删除重复渲染（框架数据在 detailFrameworks 独立卡片中唯一展示）
-      // 原 v44 P0-2 在 detailRelated 内渲染框架 → 与 detailFrameworks 重复
-      // 现在 detailRelated 只保留 关联指标 + 关联实体
-
-      // ====== v44 P0-3 : 关联实体（含 description） ======
-      const relatedEnts = node._relatedEntities || [];
-      if (relatedEnts.length > 0) {
-        const relByType = {};
-        relatedEnts.forEach(r => {
-          const t = r.relation_type || '相关';
-          if (!relByType[t]) relByType[t] = [];
-          relByType[t].push(r);
-        });
-        relatedHtml += '<div style="color:#FFA07A;font-weight:bold;margin:14px 0 6px;font-size:13px;">🔗 关联实体（含业务说明） <span style="color:#888;font-weight:normal;">×' + relatedEnts.length + '</span></div>';
-        Object.entries(relByType).slice(0, 4).forEach(([rtype, list]) => {
-          const dir = list[0] && list[0].dir === 'out' ? '→' : '←';
-          relatedHtml += `<div style="color:#FFA07A;font-size:11px;margin:4px 0 2px;">▸ ${dir} ${escapeHtml(rtype)}（${list.length}）</div>`;
-          list.slice(0, 2).forEach(r => {
-            const otherNode = graphData.nodes.find(nn => nn.id === r.other_id);
-            const otherName = otherNode ? (otherNode.name || otherNode.id || '') : (r.other_id || '');
-            const desc = (r.description || '').toString();
-            relatedHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;border-left:2px solid #FFA07A;background:rgba(255,160,122,0.04);"><b style="color:#FFA07A">${escapeHtml(otherName.slice(0, 20))}</b>: ${escapeHtml(desc.slice(0, 80))}${desc.length > 80 ? '...' : ''}</div>`;
-          });
-        });
+        if (indHtml) {
+          relatedHtml += '<div style="color:#B5CEA8;font-weight:bold;margin:14px 0 6px;font-size:13px;">📊 关联指标 <span style="color:#888;font-weight:normal;">×' + indicators.length + '</span></div>';
+          relatedHtml += indHtml;
+        }
       }
 
       document.getElementById('detailRelated').innerHTML = relatedHtml;
