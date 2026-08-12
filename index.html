@@ -760,6 +760,49 @@
     }
   }
 
+  // P247 v1 (2026-08-12): 批量预加载 enrichment（先按行业分桶 → 每个行业 fetch 一次 → 注入所有实体）
+  // 根因: entities.json 只有 16 基础字段，无 _indicators/_reports/_relatedEntities/_logicRefs/_frameworks
+  // 旧版 data.json 自带 enrichment → transformData 直接读取；pipe_split 架构丢失该数据
+  // 修复: 页面加载时按行业批量 fetch，注入每个实体；点击时 attachEnrichment 仍保留作为 fallback
+  async function preloadEnrichment() {
+    if (!indexLoaded) await loadIndustryIndex();
+    const entities = rawData.entities;
+    // 按行业分桶（优先用 index 映射，fallback 用 entity.industry）
+    const industryBuckets = new Map();
+    for (const e of entities) {
+      let ind = entityIndustryIndex?.[e.id] || e.industry || 'unknown';
+      if (!ind || ind === 'unknown') continue;
+      if (!industryBuckets.has(ind)) industryBuckets.set(ind, []);
+      industryBuckets.get(ind).push(e);
+    }
+    console.log('[P247] 需预加载行业数:', industryBuckets.size, '覆盖实体数:',
+      Array.from(industryBuckets.values()).reduce((s, v) => s + v.length, 0));
+
+    const stats = { fetchedIndustries: 0, injectedEntities: 0 };
+    for (const [industry, ents] of industryBuckets.entries()) {
+      try {
+        const cb = '?v=' + Date.now();
+        const res = await fetch('./industries/' + encodeURIComponent(industry) + '.json' + cb, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const industryData = await res.json();
+        stats.fetchedIndustries++;
+        const lookup = new Map();
+        for (const x of industryData) { if (x.id) lookup.set(x.id, x); }
+        for (const e of ents) {
+          const enriched = lookup.get(e.id);
+          if (!enriched) continue;
+          e._logicRefs = enriched._logicRefs || [];
+          e._indicators = enriched._indicators || [];
+          e._frameworks = enriched._frameworks || [];
+          e._reports = enriched._reports || [];
+          e._relatedEntities = enriched._relatedEntities || [];
+          stats.injectedEntities++;
+        }
+      } catch(err) { /* 单行业失败不影响其他 */ }
+    }
+    console.log('[P247] enrichment 预加载完成:', stats);
+  }
+
   // ===========================
   // 1. 加载数据（从 split 文件：entities.json + relations.json）
   // ===========================
@@ -783,6 +826,9 @@
       });
       // P229 v6: 同步加载 entity_industry_index.json（~50KB，不阻塞初始渲染）
       loadIndustryIndex();
+      // P247 v1 (2026-08-12): 批量预加载 enrichment（从 industries/*.json 注入 _indicators/_reports 等）
+      // 这是关键：entities.json 无 enrichment 字段，不预加载则详情卡所有区块都是空
+      await preloadEnrichment();
       transformData();
       initGraph();
       initControls();
