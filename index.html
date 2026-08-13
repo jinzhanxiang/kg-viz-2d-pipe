@@ -710,6 +710,19 @@
     if (industryFileCache[industry]) return industryFileCache[industry];
     try {
       const cb = '?v=' + Date.now();
+      // P248 v14: gzip 优先加载（13MB 行业文件），失败降级 .json
+      try {
+        const gzRes = await fetch(`./industries/${industry}.json.gz` + cb, { cache: 'no-store' });
+        if (gzRes.ok && typeof DecompressionStream !== 'undefined') {
+          const buf = await gzRes.arrayBuffer();
+          const ds = new DecompressionStream('gzip');
+          const text = await new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
+          const data = JSON.parse(text);
+          industryFileCache[industry] = data;
+          console.log(`[P229 v6] 行业文件 ${industry}.json.gz 已加载: ${data.length} 实体`);
+          return data;
+        }
+      } catch (e) { /* .gz 不可用 → 降级 */ }
       const res = await fetch(`./industries/${industry}.json` + cb, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
@@ -722,6 +735,8 @@
     }
     return null;
   }
+  
+  // 第二个 fetch 位置（如果存在，看 preloadEnrichment 那处）
 
   // P229 v6: 为 node 注入 enrichment 数据（从 industry 文件提取）
   async function attachEnrichment(node) {
@@ -794,6 +809,20 @@
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
           const cb = '?v=' + Date.now();
+          // P248 v14: gzip 优先
+          try {
+            const gzRes2 = await fetch('./industries/' + encodeURIComponent(industry) + '.json.gz' + cb, { cache: 'no-store' });
+            if (gzRes2.ok && typeof DecompressionStream !== 'undefined') {
+              const buf = await gzRes2.arrayBuffer();
+              const ds = new DecompressionStream('gzip');
+              const text = await new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
+              const data = JSON.parse(text);
+              stats.fetchedIndustries++;
+              for (const x of data) { if (x.id) lookup.set(x.id, x); }
+              if (loadFn) loadFn(lookup);
+              return;
+            }
+          } catch (e) { /* fallback */ }
           const res = await fetch('./industries/' + encodeURIComponent(industry) + '.json' + cb, {
             cache: 'no-store', signal: controller.signal
           });
