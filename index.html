@@ -1612,7 +1612,7 @@
         if (!ragUrl) { _fallbackAIQuery(result, query); return; }
         xhr.open('POST', ragUrl, true);
         xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.timeout = 45000;
+        xhr.timeout = 90000; // P248 v15.1: 45s→90s（RAG API 实测 23-52s，45s 超时导致 ~30% 请求静默降级）
         xhr.onload = function() {
           if (xhr.status === 200) {
             try {
