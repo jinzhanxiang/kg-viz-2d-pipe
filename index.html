@@ -2698,20 +2698,29 @@ window.__showDetailCard = function(node) {
         });
       } else {
         // force-graph 使用 onNodeClick + dblclick 事件
-        console.log('[方向 5] onNodeDoubleClick 不可用，使用兼容写法（双击判断 250ms）');
+        console.log('[方向 5] onNodeDoubleClick 不可用，使用兼容写法（单击打开 + 双击判断 250ms）');
         let lastClickTime = 0;
         let lastClickId = null;
         if (typeof Graph.onNodeClick === 'function') {
           Graph.onNodeClick(node => {
             const now = Date.now();
             if (node && lastClickId === node.id && (now - lastClickTime) < 300) {
-              // 双击
+              // 双击 → L4 详情（完整层级）
               window.__dataFunnel.level = 'L4';
               window.__dataFunnel.currentNode = node.id;
               window.__applyDataFunnel();
               window.__showDetailCard(node);
               lastClickId = null;
             } else {
+              // P248 v6: 单击立即打开详情卡（原版本双击才打开，单击无反应——修复）
+              if (node) {
+                const funnel = window.__dataFunnel;
+                funnel.level = 'L3';
+                funnel.currentNode = node.id;
+                funnel.currentType = null;
+                funnel.currentIndustry = node.industry || null;
+                try { if (typeof window.__showDetailCard === 'function') window.__showDetailCard(node); } catch(e) {}
+              }
               lastClickId = node?.id;
               lastClickTime = now;
             }
