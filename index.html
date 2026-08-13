@@ -1554,7 +1554,7 @@
                 html += '<div style="padding:3px 0 3px 8px;border-left:2px solid #FFD700;margin-bottom:4px;font-size:11px;">' +
                   '<div style="color:#fff;font-weight:600;">' + escapeHtml(nName) + '</div>' +
                   relItems +
-                  (neighbors.length > 3 ? '<div style="color:#666;font-size:10px;">... 还有 ' + (neighbors.length - 3) + ' 个邻居</div>' : '') +
+                  // P248: 全部显示，去掉截断
                 '</div>';
               }
             }
@@ -2308,8 +2308,8 @@ window.__showDetailCard = function(node) {
 
         const html = [`<div style="color:${color};font-weight:bold;margin:12px 0 6px;font-size:13px;">${emoji} ${escapeHtml(groupKey)} <span style="color:#888;font-weight:normal;">×${list.length}</span> <span style="color:#666;font-size:11px;font-weight:normal;">${escapeHtml(desc)}</span></div>`];
 
-        // 限制每个类别最多 10 个
-        list.slice(0, 10).forEach(item => {
+        // P248 (2026-08-13): 用户要求全部显示，去掉限制
+        list.forEach(item => {
           const n = item.node;
           const dir = item.dir === 'out' ? '→' : item.dir === 'both' ? '↔' : '←';
           const nc = TYPE_COLORS[n.type] || '#888';
@@ -2319,9 +2319,7 @@ window.__showDetailCard = function(node) {
           </div>`);
         });
 
-        if (list.length > 10) {
-          html.push(`<div style="font-size:11px;color:#888;padding:2px 8px;">...还有 ${list.length - 10} 个</div>`);
-        }
+        // P248: 去掉"还有 N 个"折叠提示，全部显示
         return html.join('');
       }
 
@@ -2382,11 +2380,12 @@ window.__showDetailCard = function(node) {
         const relOrder = ['竞争','对比','上下游','客户','供应','产品','技术','战略联盟','合作','投资','监管','相关'];
         Object.entries(relByType)
           .sort((a,b) => (relOrder.indexOf(a[0]) !== -1 ? relOrder.indexOf(a[0]) : 99) - (relOrder.indexOf(b[0]) !== -1 ? relOrder.indexOf(b[0]) : 99))
-          .slice(0, 6).forEach(([rtype, list]) => {
+          .forEach(([rtype, list]) => {
           const dir = list[0] && list[0].dir === 'out' ? '→' : '←';
           const nc = list[0]?.type ? (TYPE_COLORS[list[0].type] || '#888') : '#888';
           relatedHtml += `<div style="color:${nc};font-size:11px;margin:6px 0 3px;font-weight:bold;">▸ ${dir} ${escapeHtml(rtype)}（${list.length}）</div>`;
-          list.slice(0, 3).forEach(entry => {
+          // P248: 全部显示，去掉"还有 N 个"折叠提示
+          list.forEach(entry => {
             const desc = (entry.description || '').toString();
             const nc2 = entry.type ? (TYPE_COLORS[entry.type] || '#888') : '#888';
             relatedHtml += `<div class="detail-relation-item" data-id="${escapeHtml(entry.id)}" style="font-size:12px;color:#ccc;line-height:1.6;padding:4px 8px;margin:2px 0;border-left:2px solid ${nc2};background:rgba(255,160,122,0.04);cursor:pointer;">`;
@@ -2394,13 +2393,10 @@ window.__showDetailCard = function(node) {
             if (desc) relatedHtml += `: ${escapeHtml(desc.slice(0, 100))}${desc.length > 100 ? '...' : ''}`;
             relatedHtml += `</div>`;
           });
-          if (list.length > 3) {
-            relatedHtml += `<div style="font-size:11px;color:#888;padding:1px 8px;">... 还有 ${list.length - 3} 个</div>`;
-          }
-        });
-        if (Object.keys(relByType).length > 6) {
-          relatedHtml += `<div style="font-size:11px;color:#888;margin-top:4px;">... 另有 ${Object.keys(relByType).length - 6} 个关系类型</div>`;
+          // P248: 去掉"还有 N 个"折叠提示，全部显示
+          });
         }
+        // P248: 去掉"另有 N 个关系类型"提示，全部显示
       }
       // ====== v44 P0-1 : 关联指标（合并到关联实体下方）======
       const indicators = node._indicators || [];
@@ -2412,12 +2408,14 @@ window.__showDetailCard = function(node) {
           indByType[t].push(ind);
         });
         let indHtml = '';
-        Object.entries(indByType).slice(0, 3).forEach(([itype, list]) => {
+        // P248: 全部类型 + 全部指标显示，并补上 value 数值
+        Object.entries(indByType).forEach(([itype, list]) => {
           indHtml += `<div style="color:#9CDCFE;font-size:11px;margin:4px 0 2px;">▸ ${escapeHtml(itype)}（${list.length}）</div>`;
-          list.slice(0, 4).forEach(ind => {
+          list.forEach(ind => {
             const unit = ind.unit ? `<span style="color:#888;"> ${escapeHtml(ind.unit)}</span>` : '';
+            const value = ind.value !== undefined && ind.value !== null && String(ind.value) !== '' ? `<span style="color:#B5CEA8;font-weight:bold;">=${escapeHtml(String(ind.value))}</span>` : '';
             const isCore = ind.is_core ? '⭐' : '·';
-            indHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;">${isCore} ${escapeHtml(ind.name.slice(0, 40))}${unit}</div>`;
+            indHtml += `<div style="font-size:12px;color:#ccc;line-height:1.6;padding:3px 8px;margin:2px 0;">${isCore} ${escapeHtml(ind.name.slice(0, 80))}${value}${unit}</div>`;
           });
         });
         if (indHtml) {
@@ -2496,28 +2494,26 @@ window.__showDetailCard = function(node) {
       const reports = node._reports || [];
       if (reports && reports.length > 0) {
         const rptHtml = ['<div style="color:#FFD700;font-weight:bold;margin:12px 0 4px;font-size:13px;">📄 原始研报 <span style="color:#888;font-weight:normal;">×</span>' + reports.length + '</div>'];
-        reports.slice(0, 8).forEach(rp => {
+        // P248: 全部研报显示，去掉 8 条限制
+        reports.forEach(rp => {
           const rid = rp.report_id || '';
           const title = rp.title || '(无标题)';
           const meta = [rp.source, rp.publish_date, rp.industry].filter(Boolean).join(' · ');
           if (rid) {
             rptHtml.push(
               '<div style="font-size:12px;line-height:1.5;color:#ccc;padding:4px 6px;margin:2px 0;">' +
-                '<a href="/report-viewer.html?report_id=' + escapeHtml(rid) +
+                '<a href="./report-viewer.html?report_id=' + escapeHtml(rid) +
                 '" target="_blank" rel="noopener" style="color:#4EC9FF;text-decoration:none;font-weight:500;">' +
-                escapeHtml(title.slice(0, 60)) + (title.length > 60 ? '…' : '') + '</a>' +
+                escapeHtml(title.slice(0, 80)) + (title.length > 80 ? '…' : '') + '</a>' +
                 (meta ? '<div style="color:#888;font-size:11px;margin-top:2px;">' + escapeHtml(meta) + '</div>' : '') +
               '</div>'
             );
           } else {
             rptHtml.push(
-              '<div style="font-size:12px;color:#888;padding:4px 6px;margin:2px 0;">' + escapeHtml(title.slice(0, 60)) + '</div>'
+              '<div style="font-size:12px;color:#888;padding:4px 6px;margin:2px 0;">' + escapeHtml(title.slice(0, 80)) + '</div>'
             );
           }
         });
-        if (reports.length > 8) {
-          rptHtml.push('<div style="font-size:11px;color:#888;padding:2px 6px;">…还有 ' + (reports.length - 8) + ' 份</div>');
-        }
         sourceHtmlExtra.push(rptHtml.join(''));
       } else {
         // P221 v2: 无报告时显式提示
@@ -2535,12 +2531,11 @@ window.__showDetailCard = function(node) {
           if (logics.length === 0) {
             logicHtml = '<div style="font-size:11px;color:#888;margin:12px 0 4px;">🔗 暂无关联逻辑链</div>';
           } else {
-            logics.slice(0, 5).forEach(l => {
-              logicHtml += `<div style="font-size:12px;line-height:1.5;padding:4px 8px;margin:3px 0;border-left:2px solid #9b7cff;background:rgba(155,124,255,0.05);border-radius:0 3px 3px 0;"><b style="color:#9b7cff">${escapeHtml(l.stage || '推理')}</b>: ${escapeHtml(l.text || l.premise || '').substring(0, 150)}${(l.text || l.premise || '').length > 150 ? '...' : ''}</div>`;
+            // P248: 全部逻辑链 + 全部文本显示，去掉截断
+            logics.forEach(l => {
+              logicHtml += `<div style="font-size:12px;line-height:1.5;padding:4px 8px;margin:3px 0;border-left:2px solid #9b7cff;background:rgba(155,124,255,0.05);border-radius:0 3px 3px 0;"><b style="color:#9b7cff">${escapeHtml(l.stage || '推理')}</b>: ${escapeHtml(l.text || l.premise || '')}</div>`;
             });
-            if (logics.length > 5) {
-              logicHtml += `<div style="font-size:11px;color:#888;margin-top:6px;">... 另有 ${logics.length - 5} 条逻辑链</div>`;
-            }
+            // P248: 去掉"另有 N 条逻辑链"折叠提示，全部显示
           }
           document.getElementById('detailLogic').innerHTML = logicHtml;
         }
@@ -2562,24 +2557,35 @@ window.__showDetailCard = function(node) {
         if (frameworks.length > 0) {
           const fwTypeColor = {'core_architecture':'#ffd700','logic':'#9b7cff','risk':'#FF6B6B','opportunity':'#B5CEA8','methodology':'#4ec9ff','critical_reflection':'#C586C0'};
           let fwHtml = '';
-          frameworks.slice(0, 3).forEach(fw => {
+          // P248: 全部框架显示，去掉 3 个限制
+          frameworks.forEach(fw => {
             const fwColor = fwTypeColor[fw.type || fw.framework_type] || '#ffd700';
             const fwName = fw.name || fw.framework_name || fw.title || '框架';
             const fwCategory = fw.category || '';
             const fwConf = fw.confidence != null ? fw.confidence : null;
-            // content 字段是核心长文本描述
+            // P248: 内容字段全量显示，去掉 300 字截断
             let fwContent = fw.content || fw.description || fw.premise || '';
-            if (fwContent.length > 300) fwContent = fwContent.substring(0, 300) + '...';
-            // steps 字段是字符串化的步骤数组，解析展示
+            // P248 Fix (2026-08-13): 框架步骤过滤 — 如果 steps 只有空/数字/短句，跳过步骤显示，改展示 content
             let stepsText = '';
             if (fw.steps) {
               try {
                 const stepsArr = typeof fw.steps === 'string' ? JSON.parse(fw.steps) : fw.steps;
-                if (Array.isArray(stepsArr)) {
-                  stepsText = stepsArr.map((s, i) => `${i+1}. ${s}`).join(' → ');
+                if (Array.isArray(stepsArr) && stepsArr.length > 0) {
+                  // 过滤：只有数字、空白、短于 3 字的步骤视为无效
+                  const validSteps = stepsArr.filter(s => {
+                    const st = String(s||'').trim();
+                    return st.length >= 3 && !/^\d+$/.test(st);
+                  });
+                  if (validSteps.length > 0) {
+                    stepsText = validSteps.map((s, i) => `${i+1}. ${s}`).join(' → ');
+                  }
                 }
               } catch(e) {
-                stepsText = fw.steps;
+                // 如果 parse 失败，检查原始字符串是否有效
+                const raw = String(fw.steps).trim();
+                if (raw.length >= 3 && !/^\d+$/.test(raw)) {
+                  stepsText = raw;
+                }
               }
             }
             fwHtml += `<div style="font-size:12px;line-height:1.6;padding:8px 10px;margin:6px 0;border-left:3px solid ${fwColor};background:rgba(255,215,0,0.06);border-radius:0 4px 4px 0;">`;
@@ -2592,9 +2598,7 @@ window.__showDetailCard = function(node) {
             }
             fwHtml += `</div>`;
           });
-          if (frameworks.length > 3) {
-            fwHtml += `<div style="font-size:11px;color:#888;margin-top:4px;">... 另有 ${frameworks.length - 3} 个框架</div>`;
-          }
+          // P248: 去掉"另有 N 个框架"折叠提示，全部显示
           document.getElementById('detailFrameworks').innerHTML = fwHtml;
         } else {
           document.getElementById('detailFrameworks').innerHTML = '<div style="font-size:11px;color:#888;margin:12px 0 4px;">📐 暂无关联框架</div>';
