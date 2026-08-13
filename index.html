@@ -838,10 +838,24 @@
   // ===========================
   // 1. 加载数据（从 split 文件：entities.json + relations.json）
   // ===========================
+  // P248 v3 (2026-08-13): 逐步加载 + 每步独立 try-catch + 进度日志，防止某一步静默失败导致永久卡住
   async function loadData() {
+    const loader = document.getElementById('loader');
+    const setLoader = (msg) => { if (loader) loader.innerHTML = msg; };
+    const setProgress = (step, extra) => {
+      console.log(`[P248] 步骤: ${step} ${extra || ''}`);
+      setLoader(`⏳ 加载中... <span style="color:#888;font-size:12px;">${step}</span>`);
+    };
     try {
+      // 30s 总超时，防止永久卡住
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        throw new Error('数据加载超时 30s — 请检查浏览器控制台 (F12) 查看详细错误');
+      }, 30000);
+      
+      setProgress('① 加载基础数据...');
       const cacheBuster = '?v=' + Date.now();
-      // 优先从 split 文件加载（P200 拆分架构）
       const [entitiesRes, relationsRes] = await Promise.all([
         fetch('./entities.json' + cacheBuster, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }),
         fetch('./relations.json' + cacheBuster, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
@@ -856,20 +870,31 @@
         edges: rawData.edges.length,
         industries: new Set(rawData.entities.map(e => e.industry)).size
       });
-      // P229 v6: 同步加载 entity_industry_index.json（~50KB，不阻塞初始渲染）
-      loadIndustryIndex();
-      // P247 v1 (2026-08-12): 批量预加载 enrichment（从 industries/*.json 注入 _indicators/_reports 等）
-      // 这是关键：entities.json 无 enrichment 字段，不预加载则详情卡所有区块都是空
-      await preloadEnrichment();
+      setProgress('② 加载行业索引...', `${entities.length} entities, ${relations.length} relations`);
+      await loadIndustryIndex();
+      setProgress('③ 预加载行业数据...', `${industryBuckets && industryBuckets.size || '?'} industries`);
+      try {
+        await preloadEnrichment();
+      } catch(err) {
+        console.warn('[P248] enrichment 预加载失败，继续...', err.message);
+      }
+      setProgress('④ 转换图数据...');
       transformData();
+      setProgress('⑤ 初始化画布...', `${graphData.nodes.length} nodes, ${graphData.links.length} links`);
       initGraph();
+      setProgress('⑥ 初始化控件...');
       initControls();
       initLegend();
       updateStats();
-      document.getElementById('loader').classList.add('hidden');
+      clearTimeout(timeoutId);
+      setProgress('⑦ 完成！', `${graphData.nodes.length} 节点 / ${graphData.links.length} 边`);
+      // 延迟 500ms 显示，避免闪屏
+      setTimeout(() => { if (loader) loader.classList.add('hidden'); }, 500);
     } catch (err) {
+      if (loader) {
+        loader.innerHTML = `<div style="color:#f87171;font-size:14px;">❌ 加载失败: ${err.message}<br><small style="color:#888;">按 F12 查看控制台详细信息</small><br><small style="color:#888;">服务器: http://localhost:8000</small></div>`;
+      }
       console.error('[V5] 数据加载失败:', err);
-      document.getElementById('loader').innerHTML = '❌ 数据加载失败: ' + err.message + '<br><small>请刷新页面重试</small>';
     }
   }
 
