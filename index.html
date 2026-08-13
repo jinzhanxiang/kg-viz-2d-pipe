@@ -1546,12 +1546,26 @@
       // ── P248-RAG v1: 优先调 RAG API (localhost:19002)，失败时降级到伪 RAG ──
       function tryRAG() {
         var xhr = new XMLHttpRequest();
-        // P248-RAG v2: 线上通过 cloudflare tunnel 调用 RAG API，本地用 localhost
-        var ragUrl = __RAG_URL || (
-          window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:19002/rag'
-            : 'https://judicial-devel-airplane-guitars.trycloudflare.com/rag'
-        );
+        // P248-RAG v3: 动态获取 RAG URL — 从 rag_url.json 读取 tunnel URL（URL 每次漂移，不能硬编码）
+        var ragUrl = __RAG_URL;
+        if (!ragUrl) {
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            ragUrl = 'http://localhost:19002/rag';
+          } else {
+            // 线上: fetch 同目录 rag_url.json 拿当前 tunnel URL
+            var cfgUrl = './rag_url.json';
+            try {
+              var syncReq = new XMLHttpRequest();
+              syncReq.open('GET', cfgUrl, false); // 同步获取配置
+              syncReq.send(null);
+              if (syncReq.status === 200) {
+                var cfg = JSON.parse(syncReq.responseText);
+                if (cfg && cfg.rag_url) ragUrl = cfg.rag_url.replace(/\/$/, '') + '/rag';
+              }
+            } catch (e) { /* 保持 null → 降级伪 RAG */ }
+          }
+        }
+        if (!ragUrl) { _fallbackAIQuery(result, query); return; }
         xhr.open('POST', ragUrl, true);
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.timeout = 45000;
@@ -1569,7 +1583,7 @@
             _fallbackAIQuery(result, query);
           }
         };
-        xhr.onerror = xhr.ontimout = function() {
+        xhr.onerror = xhr.ontimeout = function() {
           console.warn('[方向 Q][RAG] 网络失败 — fallback 到伪 RAG');
           _fallbackAIQuery(result, query);
         };
