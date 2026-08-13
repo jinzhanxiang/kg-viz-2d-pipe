@@ -778,47 +778,59 @@
     console.log('[P247] 需预加载行业数:', industryBuckets.size, '覆盖实体数:',
       Array.from(industryBuckets.values()).reduce((s, v) => s + v.length, 0));
 
+    // P248 Fix (2026-08-13): 并行加载 + 超时，防止单文件 hung 导致页面永久卡在"加载数据中"
     const stats = { fetchedIndustries: 0, injectedEntities: 0 };
-    for (const [industry, ents] of industryBuckets.entries()) {
-      try {
-        const cb = '?v=' + Date.now();
-        const res = await fetch('./industries/' + encodeURIComponent(industry) + '.json' + cb, { cache: 'no-store' });
-        if (!res.ok) continue;
-        const industryData = await res.json();
-        stats.fetchedIndustries++;
-        const lookup = new Map();
-        for (const x of industryData) { if (x.id) lookup.set(x.id, x); }
-        for (const e of ents) {
-          const enriched = lookup.get(e.id);
-          if (!enriched) continue;
-          e._logicRefs = enriched._logicRefs || [];
-          e._indicators = (enriched._indicators || []).map(ind => ({
-            // industries/*.json schema → 渲染代码期待的旧 schema
-            indicator_id: ind.id || ind.indicator_id,
-            indicator_name: ind.name || ind.indicator_name,
-            name: ind.name || ind.indicator_name,  // P197: 渲染代码用 ind.name（见 L2359）
-            indicator_type: ind.type || ind.indicator_type || '其他',
-            unit: ind.unit, value: ind.value, is_core: ind.is_core,
-            calculation_method: ind.calculation_method, description: ind.description,
-          }));
-          e._frameworks = (enriched._frameworks || []).map(fw => ({
-            framework_id: fw.id || fw.framework_id,
-            framework_name: fw.name || fw.framework_name,
-            framework_type: fw.type || fw.framework_type,
-            category: fw.category, dimension: fw.dimension,
-            description: fw.description || fw.premise,
-            apply_scenario: fw.apply_scenario, steps: fw.steps, confidence: fw.confidence,
-          }));
-          e._reports = enriched._reports || [];
-          e._relatedEntities = (enriched._relatedEntities || []).map(re => ({
-            other_id: re.id,
-            relation_type: (Array.isArray(re.relations) ? re.relations[0] : (re.relation_type || '相关')),
-            description: re.description || (re.descriptions && re.descriptions[0]) || '',
-            dir: re.dir,
-          }));
-          stats.injectedEntities++;
-        }
-      } catch(err) { /* 单行业失败不影响其他 */ }
+    const industryEntries = Array.from(industryBuckets.entries());
+    const CONCURRENCY = 8; // 并发数
+    const FETCH_TIMEOUT = 15000; // 15s 超时
+
+    for (let i = 0; i < industryEntries.length; i += CONCURRENCY) {
+      const batch = industryEntries.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map(async ([industry, ents]) => {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+          const cb = '?v=' + Date.now();
+          const res = await fetch('./industries/' + encodeURIComponent(industry) + '.json' + cb, {
+            cache: 'no-store', signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          if (!res.ok) return;
+          const industryData = await res.json();
+          stats.fetchedIndustries++;
+          const lookup = new Map();
+          for (const x of industryData) { if (x.id) lookup.set(x.id, x); }
+          for (const e of ents) {
+            const enriched = lookup.get(e.id);
+            if (!enriched) continue;
+            e._logicRefs = enriched._logicRefs || [];
+            e._indicators = (enriched._indicators || []).map(ind => ({
+              indicator_id: ind.id || ind.indicator_id,
+              indicator_name: ind.name || ind.indicator_name,
+              name: ind.name || ind.indicator_name,
+              indicator_type: ind.type || ind.indicator_type || '其他',
+              unit: ind.unit, value: ind.value, is_core: ind.is_core,
+              calculation_method: ind.calculation_method, description: ind.description,
+            }));
+            e._frameworks = (enriched._frameworks || []).map(fw => ({
+              framework_id: fw.id || fw.framework_id,
+              framework_name: fw.name || fw.framework_name,
+              framework_type: fw.type || fw.framework_type,
+              category: fw.category, dimension: fw.dimension,
+              description: fw.description || fw.premise,
+              apply_scenario: fw.apply_scenario, steps: fw.steps, confidence: fw.confidence,
+            }));
+            e._reports = enriched._reports || [];
+            e._relatedEntities = (enriched._relatedEntities || []).map(re => ({
+              other_id: re.id,
+              relation_type: (Array.isArray(re.relations) ? re.relations[0] : (re.relation_type || '相关')),
+              description: re.description || (re.descriptions && re.descriptions[0]) || '',
+              dir: re.dir,
+            }));
+            stats.injectedEntities++;
+          }
+        } catch(err) { /* 单行业失败不影响其他 */ }
+      }));
     }
     console.log('[P247] enrichment 预加载完成:', stats);
   }
