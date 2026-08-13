@@ -2207,7 +2207,7 @@ window.__showDetailCard = function(node) {
         <div><span class="label">重要性:</span><span class="value">${importanceLabel}</span></div>
         <div><span class="label">时间:</span><span class="value">${escapeHtml(node.publishDate || '未知')}</span></div>
         <div><span class="label">社区:</span><span class="value">#${(node._communityId !== undefined ? node._communityId : (node.communityId !== undefined ? node.communityId : '未分配'))}</span></div>
-        ${node.desc ? `<div><span class="label">描述:</span><span class="value">${escapeHtml(node.desc.slice(0, 200))}</span></div>` : ''}
+        ${node.desc ? `<div><span class="label">描述:</span><span class="value">${escapeHtml(node.desc)}</span></div>` : ''}
       `;
       
       // v34: 删除邻居节点维度（主公要求：与下方关联指标重复）
