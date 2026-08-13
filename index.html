@@ -970,7 +970,7 @@
       .nodeLabel(node => `<div style="background:#1a1a2e;color:#fff;padding:6px 10px;border-radius:6px;border:1px solid #4ec9ff;font-size:12px;max-width:240px">
         <div style="color:#4ec9ff;font-weight:600;margin-bottom:4px">${escapeHtml(node.name)}</div>
         <div style="color:#888;font-size:12px;">${node.typeLabel} · ${node.industry || '未分类'}</div>
-        ${node.desc ? `<div style="margin-top:4px;font-size:12px;line-height:1.4">${escapeHtml(node.desc.slice(0, 100))}${node.desc.length > 100 ? '...' : ''}</div>` : ''}
+        ${node.desc ? `<div style="margin-top:4px;font-size:12px;line-height:1.4">${escapeHtml(node.desc)}${node.desc.length > 100 ? '' : ''}</div>` : ''}
       </div>`)
       .nodeColor(node => {
         // 方向 6: dim 效果 - 未匹配的节点变灰
