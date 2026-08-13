@@ -879,12 +879,12 @@
       setLoader(`⏳ 加载中... <span style="color:#888;font-size:12px;">${step}</span>`);
     };
     try {
-      // 30s 总超时，防止永久卡住
+      // P248 v14: 90s 总超时（gzip 下载 + 行业预加载在隧道/慢网下需要更长时间）
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
-        throw new Error('数据加载超时 30s — 请检查浏览器控制台 (F12) 查看详细错误');
-      }, 30000);
+        throw new Error('数据加载超时 90s — 请检查浏览器控制台 (F12) 查看详细错误');
+      }, 90000);
       
       setProgress('① 加载基础数据...');
       const cacheBuster = '?v=' + Date.now();
