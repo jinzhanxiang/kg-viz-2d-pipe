@@ -1546,7 +1546,13 @@
       // ── P248-RAG v1: 优先调 RAG API (localhost:19002)，失败时降级到伪 RAG ──
       function tryRAG() {
         var xhr = new XMLHttpRequest();
-        xhr.open('POST', 'http://localhost:19002/rag', true);
+        // P248-RAG v2: 线上通过 cloudflare tunnel 调用 RAG API，本地用 localhost
+        var ragUrl = __RAG_URL || (
+          window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:19002/rag'
+            : 'https://judicial-devel-airplane-guitars.trycloudflare.com/rag'
+        );
+        xhr.open('POST', ragUrl, true);
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.timeout = 45000;
         xhr.onload = function() {
