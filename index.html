@@ -729,9 +729,12 @@
     if (!eid) return;
     // 等待索引加载完成
     if (!indexLoaded) await loadIndustryIndex();
-    if (!entityIndustryIndex) return;
-    const industry = entityIndustryIndex[eid];
-    if (!industry) return;
+    // P248 v9 Fix: 索引缺失时 fallback 到 node.industry（与 preloadEnrichment 一致）
+    let industry = entityIndustryIndex?.[eid];
+    if (!industry) {
+      industry = node.industry || node.sector;
+      if (!industry) return;
+    }
     // 加载行业文件（缓存）
     const industryData = await loadIndustryFile(industry);
     if (!industryData) return;
