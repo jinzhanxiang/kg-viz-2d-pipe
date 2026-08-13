@@ -1537,19 +1537,88 @@
     function __runAIQuery(query) {
       var result = document.getElementById('aiQueryResult');
       if (!result || !query) return;
-      result.innerHTML = '<div style="color:#4ec9ff">🤔 思考中...</div>';
-      setTimeout(function() {
+      result.innerHTML = '<div style="color:#4ec9ff">🧠 正在检索知识库 + 大模型生成中...</div>';
+      console.log('[方向 Q][RAG] query=', query);
+
+      // ── P248-RAG v1: 优先调 RAG API (localhost:19002)，失败时降级到伪 RAG ──
+      function tryRAG() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', 'http://localhost:19002/rag', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.timeout = 45000;
+        xhr.onload = function() {
+          if (xhr.status === 200) {
+            try {
+              var data = JSON.parse(xhr.responseText);
+              __renderRAGResult(result, data, query);
+            } catch (e) {
+              console.error('[方向 Q][RAG] JSON parse fail', e);
+              _fallbackAIQuery(result, query);
+            }
+          } else {
+            console.warn('[方向 Q][RAG] HTTP ' + xhr.status + ' — fallback 到伪 RAG');
+            _fallbackAIQuery(result, query);
+          }
+        };
+        xhr.onerror = xhr.ontimout = function() {
+          console.warn('[方向 Q][RAG] 网络失败 — fallback 到伪 RAG');
+          _fallbackAIQuery(result, query);
+        };
+        xhr.send(JSON.stringify({ query: query, top_k: 8 }));
+      }
+
+      // ── 渲染 RAG 结果 ──
+      function __renderRAGResult(el, data, query) {
+        var html = '<div style="color:#FFD700;font-weight:600;margin-bottom:4px;">💡 智能回答</div>';
+        html += '<div style="color:#fff;font-size:12px;line-height:1.6;">' +
+                _escapeHtmlForRAG(data.answer || '(回答为空)') + '</div>';
+        if (data.confidence) {
+          var conf = data.confidence;
+          var confIcon = conf === 'high' ? '🟢' : conf === 'medium' ? '🟡' : '🔴';
+          html += '<div style="color:#aab;font-size:11px;margin-top:4px;">置信度 ' + confIcon + ' ' + conf +
+                  ' · 耗时 ' + (data.meta && data.meta.elapsed_ms ? data.meta.elapsed_ms + 'ms' : '?ms') +
+                  ' · 召回 ' + (data.meta && data.meta.recall_count || 0) +
+                  ' 精排 ' + (data.meta && data.meta.rerank_count || 0) + '</div>';
+        }
+        if (data.sources && data.sources.length > 0) {
+          html += '<div style="margin-top:8px;color:#4ec9ff;font-size:12px;font-weight:600;">📚 引用来源（' + data.sources.length + '）</div>';
+          html += '<div style="max-height:200px;overflow-y:auto;font-size:11px;">';
+          for (var i = 0; i < data.sources.length; i++) {
+            var s = data.sources[i];
+            var kindIcon = s.kind === 'entity' ? '🏢' :
+                           s.kind === 'logic' ? '🔗' :
+                           s.kind === 'framework' ? '📐' :
+                           s.kind === 'indicator' ? '📊' : '📄';
+            var label = _escapeHtmlForRAG(s.label || '(无标签)');
+            var id_ = s.point_id ? '<span style="color:#666;font-size:10px;"> ' + _escapeHtmlForRAG(s.point_id) + '</span>' : '';
+            html += '<div style="padding:3px 6px;border-left:2px solid #4ec9ff;margin:2px 0;">' +
+                    kindIcon + ' <b style="color:#fff;">' + label + '</b>' + id_ +
+                    ' <span style="color:#666;font-size:10px;">[' + s.kind + ']</span></div>';
+          }
+          html += '</div>';
+        }
+        html += '<div style="margin-top:6px;color:#666;font-size:10px;">RAG v1 · Qdrant 召回 → OMLX rerank → OMLX LLM</div>';
+        el.innerHTML = html;
+        console.log('[方向 Q][RAG] rendered', {sources: (data.sources||[]).length, conf: data.confidence});
+      }
+
+      function _escapeHtmlForRAG(s) {
+        if (!s) return '';
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                .replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+      }
+
+      // ── 伪 RAG 降级（原逻辑保留，RAG 失败时使用）──
+      function _fallbackAIQuery(el, query) {
         if (!graphData || !graphData.nodes) {
-          result.innerHTML = '<div style="color:#ff6b6b">❌ 图数据未加载</div>';
+          el.innerHTML = '<div style="color:#ff6b6b">❌ 图数据未加载</div>';
           return;
         }
         var ql = query.toLowerCase();
         var intent = 'all';
         if (ql.indexOf('核心') >= 0 || ql.indexOf('重要') >= 0 || ql.indexOf('top') >= 0) intent = 'top';
         else if (ql.indexOf('多少') >= 0 || ql.indexOf('统计') >= 0) intent = 'stats';
-        else if (ql.indexOf('关系') >= 0 || ql.indexOf('连接') >= 0) intent = 'relations';
-        var industries = [];
-        var seen = {};
+        var industries = []; var seen = {};
         graphData.nodes.forEach(function(n) {
           if (n.industry && !seen[n.industry]) { seen[n.industry] = true; industries.push(n.industry); }
         });
@@ -1557,67 +1626,27 @@
         for (var i = 0; i < industries.length; i++) {
           if (ql.indexOf(industries[i].toLowerCase()) >= 0) { matchedIndustry = industries[i]; break; }
         }
-        var matched = graphData.nodes;
-        if (matchedIndustry) matched = matched.filter(function(n) { return n.industry === matchedIndustry; });
-        var html = '<div style="color:#FFD700;font-weight:600;margin-bottom:6px;">💡 回答</div>';
+        var matched = matchedIndustry ? graphData.nodes.filter(function(n) { return n.industry === matchedIndustry; }) : graphData.nodes;
+        var html = '<div style="color:#FFD700;font-weight:600;margin-bottom:6px;">💡 回答 <span style="color:#ff9800;font-size:11px;font-weight:400;">（本地 RAG 不可用，降级显示）</span></div>';
         if (matched.length === 0) {
           html += '<div style="color:#aab">未找到匹配节点。试试："电力设备的核心机构"</div>';
         } else {
           if (matchedIndustry) html += '<div>匹配行业: <b style="color:#4ec9ff">' + matchedIndustry + '</b>（' + matched.length + ' 节点）</div>';
-          if (intent === 'top' || intent === 'all') {
-            var sorted = matched.slice().sort(function(a, b) { return (b.importance || 0) - (a.importance || 0); });
-            var top = sorted.slice(0, 8);
-                        // v28: 显示关系/邻居/产品（增强 wiki page 内容）
-            html += '<div style="margin-top:8px;color:#4ec9ff;font-size:12px;font-weight:600;">🔗 关系网络（前 8 节点）</div>';
-            for (var k = 0; k < Math.min(top.length, 8); k++) {
-              var tn = top[k];
-              var neighbors = [];
-              if (graphData.links) {
-                graphData.links.forEach(function(l) {
-                  var s = typeof l.source === 'object' ? l.source.id : l.source;
-                  var t = typeof l.target === 'object' ? l.target.id : l.target;
-                  if (s === tn.id) neighbors.push({dir: '→', other: t, type: l.type || 'related'});
-                  else if (t === tn.id) neighbors.push({dir: '←', other: s, type: l.type || 'related'});
-                });
-              }
-              if (neighbors.length > 0) {
-                var nName = tn.name || tn.id;
-                var shortNeighbors = neighbors.slice(0, 3);
-                var relItems = shortNeighbors.map(function(nb) {
-                  var otherNode = graphData.nodes.find(function(x) { return x.id === nb.other; });
-                  var otherName = otherNode ? (otherNode.name || otherNode.id) : nb.other;
-                  return '<span style="color:#888;font-size:11px;">' + nb.dir + '</span> <span style="color:#FFD700;">' + escapeHtml(otherName) + '</span> <span style="color:#666;font-size:10px;">(' + (nb.type || 'related') + ')</span>';
-                }).join('<br>');
-                html += '<div style="padding:3px 0 3px 8px;border-left:2px solid #FFD700;margin-bottom:4px;font-size:11px;">' +
-                  '<div style="color:#fff;font-weight:600;">' + escapeHtml(nName) + '</div>' +
-                  relItems +
-                  // P248: 全部显示，去掉截断
-                '</div>';
-              }
-            }
-            html += '<div style="margin-top:6px;color:#aab">核心节点 TOP 8:</div>';
-            for (var j = 0; j < top.length; j++) {
-              var n = top[j];
-              var label = n.importance === 3 ? '⭐⭐⭐' : n.importance === 2 ? '⭐⭐' : '⭐';
-              html += '<div style="padding:3px 0;color:#fff">' + (j+1) + '. ' + label + ' ' + (n.name || n.id) + ' <span style="color:#888;font-size:12px;">(' + (n.type || 'N/A') + ')</span></div>';
-            }
-          }
-          if (intent === 'stats') {
-            html += '<div style="margin-top:6px;color:#aab">统计:</div>';
-            html += '<div>· 节点数: <b>' + matched.length + '</b></div>';
-            var types = {};
-            matched.forEach(function(n) { types[n.type || 'unknown'] = (types[n.type || 'unknown'] || 0) + 1; });
-            html += '<div>· 类型分布:</div>';
-            var typeEntries = Object.keys(types).map(function(k) { return [k, types[k]]; });
-            typeEntries.sort(function(a, b) { return b[1] - a[1]; });
-            typeEntries.forEach(function(pair) {
-              html += '<div style="padding-left:8px;color:#4ec9ff">' + pair[0] + ': ' + pair[1] + '</div>';
-            });
+          var sorted = matched.slice().sort(function(a, b) { return (b.importance || 0) - (a.importance || 0); });
+          var top = sorted.slice(0, 8);
+          html += '<div style="margin-top:6px;color:#aab">核心节点 TOP 8:</div>';
+          for (var j = 0; j < top.length; j++) {
+            var n = top[j];
+            var label = n.importance === 3 ? '⭐⭐⭐' : n.importance === 2 ? '⭐⭐' : '⭐';
+            html += '<div style="padding:3px 0;color:#fff">' + (j+1) + '. ' + label + ' ' + (n.name || n.id) + ' <span style="color:#888;font-size:12px;">(' + (n.type || 'N/A') + ')</span></div>';
           }
         }
-        result.innerHTML = html;
-        console.log('[方向 Q] AI 问答:', { query: query, intent: intent, matchedIndustry: matchedIndustry, matchedCount: matched.length });
-      }, 300);
+        el.innerHTML = html;
+        console.log('[方向 Q] fallback 伪 RAG:', { query: query, intent: intent, matchedCount: matched.length });
+      }
+
+      // 尝试 RAG
+      tryRAG();
     }
 
     setTimeout(__applyClusterColoring, 5000);
