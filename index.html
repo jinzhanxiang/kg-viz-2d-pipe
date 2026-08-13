@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>知识图谱 2D 管道可视化 V5 — 物理隔离 + 强聚类排斥</title>
+<title>知识图谱 2D 管道可视化 V7 — RAG 智能问答</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -859,14 +859,29 @@
       
       setProgress('① 加载基础数据...');
       const cacheBuster = '?v=' + Date.now();
-      const [entitiesRes, relationsRes] = await Promise.all([
-        fetch('./entities.json' + cacheBuster, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }),
-        fetch('./relations.json' + cacheBuster, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
+      // P248 v14: gzip 优先加载（GitHub Pages CDN 无 gzip，7.6MB 原样传输超时）
+      // 策略: 先试 .gz + DecompressionStream 解压，失败降级 .json
+      async function fetchJSONSmart(base, cacheBuster) {
+        var url = base + cacheBuster;
+        // 线上/本地统一先试 .gz（update: glob 全局看有没有 .gz，没有就 json）
+        try {
+          var gzRes = await fetch(base + '.gz' + cacheBuster, { cache: 'no-store' });
+          if (gzRes.ok && typeof DecompressionStream !== 'undefined') {
+            var buffer = await gzRes.arrayBuffer();
+            var ds = new DecompressionStream('gzip');
+            var stream = new Blob([buffer]).stream().pipeThrough(ds);
+            var text = await new Response(stream).text();
+            return JSON.parse(text);
+          }
+        } catch (e) { /* .gz 不存在/失败 → 降级 .json */ }
+        var res = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+        if (!res.ok) throw new Error(base + ' 加载失败: HTTP ' + res.status);
+        return await res.json();
+      }
+      const [entities, relations] = await Promise.all([
+        fetchJSONSmart('./entities.json', cacheBuster),
+        fetchJSONSmart('./relations.json', cacheBuster)
       ]);
-      if (!entitiesRes.ok) throw new Error('entities.json 加载失败: HTTP ' + entitiesRes.status);
-      if (!relationsRes.ok) throw new Error('relations.json 加载失败: HTTP ' + relationsRes.status);
-      const entities = await entitiesRes.json();
-      const relations = await relationsRes.json();
       rawData = { entities, edges: relations };
       console.log('[V5] 加载原始数据:', {
         entities: rawData.entities.length,
