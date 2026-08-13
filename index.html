@@ -872,7 +872,7 @@
       });
       setProgress('② 加载行业索引...', `${entities.length} entities, ${relations.length} relations`);
       await loadIndustryIndex();
-      setProgress('③ 预加载行业数据...', `${industryBuckets && industryBuckets.size || '?'} industries`);
+      setProgress('③ 预加载行业数据...');
       try {
         await preloadEnrichment();
       } catch(err) {
@@ -2432,7 +2432,6 @@ window.__showDetailCard = function(node) {
           });
           // P248: 去掉"还有 N 个"折叠提示，全部显示
           });
-        }
         // P248: 去掉"另有 N 个关系类型"提示，全部显示
       }
       // ====== v44 P0-1 : 关联指标（合并到关联实体下方）======
@@ -3178,6 +3177,7 @@ window.__showDetailCard = function(node) {
     });
     document.body.appendChild(exportBtn);
     console.log('[方向 H] 导出 PNG 按钮已添加');
+  }
 
   // ===========================
   // P2.1: 搜索功能
