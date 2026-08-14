@@ -619,9 +619,15 @@
 <!-- v25: zoom UI 已全部删除 -->
 
 <!-- B3 关键：加载完整 d3 v7（包含 d3-force + d3-timer 等所有依赖） -->
-<script src="https://unpkg.com/force-graph@1.43.5/dist/force-graph.min.js"></script>
+<script src="https://unpkg.com/force-graph@1.43.5/dist/force-graph.min.js">
+    // P248 v15.3: 移到脚本开头立即注册（原位置在 Graph 初始化块内，被 async IIFE 阻塞）
+    // setTimeout(__initAIQA, 2000);  // 已移到脚本开头
+    </script>
 <script src="https://unpkg.com/d3@7.8.5/dist/d3.min.js"></script>
+
 <script>
+setTimeout(__initAIQA, 2000);
+
   const TYPE_COLORS = {
     INDUSTRY: '#FFD700', ORG: '#4ec9ff', PRODUCT: '#ff6b9d',
     TECH: '#a78bfa', POLICY: '#fbbf24', PERSON: '#34d399',
@@ -1717,7 +1723,7 @@
     }
 
     setTimeout(__applyClusterColoring, 5000);
-    setTimeout(__initAIQA, 2000);
+    // 已移到脚本开头立即注册（P248 v15.3）
     console.log('[方向 N/O/P/Q] 4 个新方向已注册');
 
     // B4 关键修复：基于 ForceAtlas2 标准重写 d3-force 配置
