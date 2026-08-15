@@ -1,13 +1,13 @@
 {
   "version": "2026-07-24.2",
-  "split_at": "2026-08-15T21:40:56.715554",
+  "split_at": "2026-08-16T02:02:06.599197",
   "source_file": "/Users/jinzhanxiang/kg-viz/data/kg_data.json",
   "source_size_mb": 844.6,
   "counts": {
     "entities": 8875,
     "relations": 8269,
     "frameworks": 1281,
-    "indicators": 29156,
+    "indicators": 29153,
     "logic_chains": 11773,
     "industries": 69
   },
